@@ -104,6 +104,17 @@ def write_wav(name: str, stereo: np.ndarray) -> None:
 
 
 # ---------------------------------------------------------------- 패드 스템
+def xfade_env(n: int, fade_in: float, fade_out: float) -> np.ndarray:
+    """등전력(equal-power) 크로스페이드용 엔벨로프: sin 으로 올라가 cos 로 내려간다."""
+    env = np.ones(n)
+    a, r = int(fade_in * SR), int(fade_out * SR)
+    if a > 0:
+        env[:a] = np.sin(np.linspace(0, np.pi / 2, a))
+    if r > 0:
+        env[-r:] = np.cos(np.linspace(0, np.pi / 2, r))
+    return env
+
+
 def make_pad(sec: float = 100.0) -> np.ndarray:
     t = t_axis(sec)
     n = len(t)
@@ -113,13 +124,17 @@ def make_pad(sec: float = 100.0) -> np.ndarray:
         [50, 53, 57, 60, 64], [52, 55, 59, 62, 67], [53, 57, 60, 64, 71], [45, 52, 57, 60, 64],
     ]
     bar = 12.5  # 초 — 8코드 × 12.5초 = 100초
+    xf = 3.0  # 코드 경계 앞뒤 1.5초씩 겹쳐 등전력 크로스페이드 (끊김/숨쉬기 없음)
     left = np.zeros(n)
     right = np.zeros(n)
+    sub = np.zeros(n)
     for ci, chord in enumerate(chords):
-        start, end = int(ci * bar * SR), int(min((ci + 1) * bar, sec) * SR)
+        first, last = ci == 0, ci == len(chords) - 1
+        s0 = 0.0 if first else ci * bar - xf / 2
+        e0 = sec if last else (ci + 1) * bar + xf / 2
+        start, end = int(s0 * SR), min(n, int(e0 * SR))
         seg_t = t[start:end]
-        seg_n = end - start
-        env = env_adsr(seg_n, 2.5, 0.0, 1.0, 3.0)
+        env = xfade_env(end - start, 0.02 if first else xf, 0.02 if last else xf)
         for m in chord:
             f = note(m)
             # 좌우로 살짝 디튠된 두 개의 톱니파 + 옥타브 위 사인 — 넓고 부드러운 패드
@@ -127,21 +142,15 @@ def make_pad(sec: float = 100.0) -> np.ndarray:
             r = saw_bandlimited(f * 1.002, seg_t) + 0.25 * np.sin(2 * np.pi * f * 2 * seg_t)
             left[start:end] += l * env / len(chord)
             right[start:end] += r * env / len(chord)
-    # 서브 베이스 (근음 한 옥타브 아래)
-    sub = np.zeros(n)
-    for ci, chord in enumerate(chords):
-        start, end = int(ci * bar * SR), int(min((ci + 1) * bar, sec) * SR)
-        env = env_adsr(end - start, 1.5, 0.0, 1.0, 2.0)
-        sub[start:end] = np.sin(2 * np.pi * note(chord[0] - 12) * t[start:end]) * env
+        # 서브 베이스 (근음 한 옥타브 아래)
+        sub[start:end] += np.sin(2 * np.pi * note(chord[0] - 12) * seg_t) * env
     # 느린 필터 스윕 (LFO 0.05 Hz) — 숨쉬는 느낌
     cutoff = 900 + 700 * np.sin(2 * np.pi * 0.05 * t - np.pi / 2)
     left = timevarying_lowpass(left, cutoff)
     right = timevarying_lowpass(right, cutoff * 1.05)
-    # 초반 10초 페이드 인, 마지막 6초 페이드 아웃
-    fade = np.ones(n)
-    fade[: int(6 * SR)] = np.linspace(0, 1, int(6 * SR)) ** 2
-    fade[-int(6 * SR):] = np.linspace(1, 0, int(6 * SR)) ** 2
-    mix = np.stack([left * 0.9 + sub * 0.35, right * 0.9 + sub * 0.35]) * fade
+    # 페이드 인/아웃은 src/sound.ts 의 볼륨 자동화가 맡는다. 여기서는 클릭 방지용 20ms 만.
+    edge = xfade_env(n, 0.02, 0.02)
+    mix = np.stack([left * 0.9 + sub * 0.35, right * 0.9 + sub * 0.35]) * edge
     return normalize(mix, -6)
 
 

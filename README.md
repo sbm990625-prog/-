@@ -16,8 +16,10 @@
 ```bash
 npm install
 npm run render            # → out/neom-line.mp4 (1920x1080, 30fps, H.264 + AAC)
+npm run master            # → out/neom-line-master.mp4 (오디오를 유튜브 기준 -14 LUFS 로 정규화, 영상은 그대로 복사)
 npm run thumbnail         # → out/thumbnail.png (1280x720)
 npm run studio            # 브라우저에서 장면별 미리보기/편집
+npm run review            # 렌더 결과에서 장면별 컨택트 시트·경계 스트립 생성 (out/review-full)
 ```
 
 렌더에는 Chromium이 필요합니다. `remotion.config.ts`는 이 저장소가 만들어진 클라우드 환경의
