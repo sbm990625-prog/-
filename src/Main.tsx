@@ -18,8 +18,8 @@ const autoCues = (): SfxCue[] => {
   const cues: SfxCue[] = [];
   SCENES.forEach((s, i) => {
     if (i === 0) return;
-    const t = s.transition.toLowerCase();
-    const prev = SCENES[i - 1].transition.toLowerCase();
+    const t = s.handoff.toLowerCase();
+    const prev = SCENES[i - 1].handoff.toLowerCase();
     const at = s.from / FPS;
     const hard = /glitch|hard|smash|글리치|하드|컷/.test(prev) && !/fade|dissolve|페이드|디졸브/.test(prev);
     if (hard) {

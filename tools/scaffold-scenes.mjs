@@ -106,7 +106,7 @@ export type SceneEntry = {
   component: React.FC;
   from: number;
   durationInFrames: number;
-  transition: string;
+  handoff: string;
 };
 
 export const FPS = ${fps};
@@ -116,7 +116,7 @@ export const SCENES: SceneEntry[] = [
 ${scenes
   .map(
     (s) =>
-      `  { id: ${esc(s.id)}, name: ${esc(s.name)}, component: ${s.name}, from: ${s.from}, durationInFrames: ${s.durationInFrames}, transition: ${esc(s.transition || "cut")} },`,
+      `  { id: ${esc(s.id)}, name: ${esc(s.name)}, component: ${s.name}, from: ${s.from}, durationInFrames: ${s.durationInFrames}, handoff: ${esc(s.transition || "cut")} },`,
   )
   .join("\n")}
 ];
