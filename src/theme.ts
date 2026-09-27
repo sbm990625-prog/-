@@ -16,6 +16,11 @@ export const COLORS = {
   mirror: "#c8d7ff",
   sky: "#0e1a3a",
   skyDawn: "#ff9a6a",
+  // 스토리보드 팔레트 (docs/script.md)
+  steel: "#9fb3c8", // 한국 비교값(서울·KTX·롯데월드타워) — 항상 이 색
+  ash: "#1a1612", // 인적 비용 장면 배경
+  ember: "#ff9f43", // 인적 비용 강조 / 엔드카드 불씨
+  concrete: "#8a8f98", // 현실 구간 콘크리트
 } as const;
 
 export const FONTS = {

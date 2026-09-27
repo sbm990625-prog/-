@@ -12,23 +12,26 @@ type Props = {
   start?: number;
   end?: number;
   color?: string;
+  /** 같은 모서리에 여러 태그를 쌓을 때 순번 (0 = 모서리에 가장 가까움) */
+  stack?: number;
 };
 
 /** 화면 구석의 작은 출처/날짜 표기. 숫자를 보여줄 땐 반드시 같이 쓴다. */
-export const SourceTag: React.FC<Props> = ({ text, label = "출처", position = "bottomRight", start = 0, end, color = COLORS.muted }) => {
+export const SourceTag: React.FC<Props> = ({ text, label = "출처", position = "bottomRight", start = 0, end, color = COLORS.muted, stack = 0 }) => {
   const frame = useCurrentFrame();
   const inP = progress(frame, start, start + 12);
   const outP = end === undefined ? 1 : 1 - progress(frame, end - 10, end);
   const o = Math.min(inP, outP);
   if (o <= 0) return null;
+  const off = SAFE.y - 40 + stack * 50;
   const pos: React.CSSProperties =
     position === "bottomRight"
-      ? { right: SAFE.x, bottom: SAFE.y - 40 }
+      ? { right: SAFE.x, bottom: off }
       : position === "bottomLeft"
-        ? { left: SAFE.x, bottom: SAFE.y - 40 }
+        ? { left: SAFE.x, bottom: off }
         : position === "topRight"
-          ? { right: SAFE.x, top: SAFE.y - 40 }
-          : { left: SAFE.x, top: SAFE.y - 40 };
+          ? { right: SAFE.x, top: off }
+          : { left: SAFE.x, top: off };
   return (
     <div
       style={{

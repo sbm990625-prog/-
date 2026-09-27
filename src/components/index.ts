@@ -29,3 +29,4 @@ export type { Lane } from "./RaceLanes";
 export { BirdFlock } from "./BirdFlock";
 export { CanyonSun } from "./CanyonSun";
 export { TypeWriter } from "./TypeWriter";
+export { ExperimentChip, DisclaimerTag, DreamLetterBox } from "./Chrome";
