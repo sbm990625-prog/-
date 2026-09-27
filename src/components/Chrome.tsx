@@ -76,8 +76,8 @@ export const DisclaimerTag: React.FC<{ start?: number; text?: string }> = ({ sta
         opacity: o,
         fontFamily: FONTS.body,
         fontWeight: 500,
-        fontSize: 24,
-        color: COLORS.muted,
+        fontSize: 26,
+        color: "#b3bdd6",
         letterSpacing: -0.2,
       }}
     >

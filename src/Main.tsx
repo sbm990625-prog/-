@@ -43,7 +43,7 @@ const isPush = (h: string) => /whoosh|push|slide|wipe|휘|밀/.test(h.toLowerCas
 /**
  * 장면 경계 처리: 나가는 장면을 OVERLAP 프레임 더 늘려 들어오는 장면 '위에서' 사라지게 한다.
  * 장면마다 따로 페이드 아웃→페이드 인 하면 경계마다 0.5초 가까이 화면이 꺼지므로,
- * 여기서 겹쳐 크로스페이드(+push 는 좌측 밀기)로 잇는다. 들어오는 장면의 시작 시각은 그대로라
+ * 여기서 겹쳐 크로스페이드(+push 는 160px 좌측 밀기)로 잇는다. 들어오는 장면의 시작 시각은 그대로라
  * 자막·효과음 타이밍은 스토리보드와 같다.
  */
 const Handoff: React.FC<{ children: React.ReactNode; outFrames: number; outPush: boolean; inFrames: number; inPush: boolean }> = ({
@@ -64,11 +64,11 @@ const Handoff: React.FC<{ children: React.ReactNode; outFrames: number; outPush:
       easing: Easing.inOut(Easing.cubic),
     });
     opacity = 1 - p;
-    if (outPush) x = -90 * p;
+    if (outPush) x = -160 * p;
   }
   if (inFrames > 0 && inPush && frame < inFrames) {
     const p = interpolate(frame, [0, inFrames], [0, 1], { extrapolateRight: "clamp", easing: Easing.out(Easing.cubic) });
-    x = 90 * (1 - p);
+    x = 160 * (1 - p);
   }
   return <AbsoluteFill style={{ opacity, transform: x ? `translateX(${x}px)` : undefined }}>{children}</AbsoluteFill>;
 };

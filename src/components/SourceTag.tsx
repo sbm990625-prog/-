@@ -17,13 +17,13 @@ type Props = {
 };
 
 /** 화면 구석의 작은 출처/날짜 표기. 숫자를 보여줄 땐 반드시 같이 쓴다. */
-export const SourceTag: React.FC<Props> = ({ text, label = "출처", position = "bottomRight", start = 0, end, color = COLORS.muted, stack = 0 }) => {
+export const SourceTag: React.FC<Props> = ({ text, label = "출처", position = "bottomRight", start = 0, end, color = "#c9d4e0", stack = 0 }) => {
   const frame = useCurrentFrame();
   const inP = progress(frame, start, start + 12);
   const outP = end === undefined ? 1 : 1 - progress(frame, end - 10, end);
   const o = Math.min(inP, outP);
   if (o <= 0) return null;
-  const off = SAFE.y - 40 + stack * 50;
+  const off = SAFE.y - 44 + stack * 54;
   const pos: React.CSSProperties =
     position === "bottomRight"
       ? { right: SAFE.x, bottom: off }
@@ -42,10 +42,10 @@ export const SourceTag: React.FC<Props> = ({ text, label = "출처", position = 
         alignItems: "center",
         gap: 12,
         fontFamily: FONTS.body,
-        fontSize: 26,
+        fontSize: 28,
         fontWeight: 500,
         color,
-        background: "rgba(5,6,15,0.65)",
+        background: "rgba(5,6,15,0.78)",
         border: `1px solid ${color}55`,
         borderRadius: 8,
         padding: "6px 14px",
