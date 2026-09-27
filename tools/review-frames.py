@@ -28,10 +28,6 @@ def ffmpeg(*args: str) -> None:
     subprocess.run(["npx", "remotion", "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *args], check=True, cwd=ROOT)
 
 
-def grab(video: str, t: float, out: str, width: int = 960) -> None:
-    ffmpeg("-ss", f"{t:.3f}", "-i", video, "-frames:v", "1", "-vf", f"scale={width}:-2", "-q:v", "3", out)
-
-
 def font(size: int) -> ImageFont.ImageFont:
     for p in [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -66,12 +62,40 @@ def main() -> None:
     scenes = sb["scenes"]
     total = scenes[-1]["endSec"]
 
-    # 0.5초 간격 프레임
+    # 0.5초 간격 프레임 + 경계 ±0.4s 프레임을 ffmpeg 한 번으로 뽑는다 (프레임 번호로 select)
+    fps = sb.get("fps", 30)
     times = [round(i * 0.5 + 0.25, 2) for i in range(int(total / 0.5))]
+    bound_times = []
+    for i in range(1, len(scenes)):
+        b = scenes[i]["startSec"]
+        for dt in (-0.4, -0.2, -0.05, 0.05, 0.2, 0.4):
+            bound_times.append(max(0, min(total - 0.04, b + dt)))
+    wanted = {}
     for t in times:
-        p = os.path.join(out, "frames", f"t_{t:05.1f}.jpg")
-        if not os.path.exists(p):
-            grab(video, t, p)
+        wanted.setdefault(int(round(t * fps)), []).append(os.path.join(out, "frames", f"t_{t:05.1f}.jpg"))
+    for t in bound_times:
+        wanted.setdefault(int(t * fps + 1e-6), []).append(os.path.join(out, "frames", f"b_{t:06.2f}.jpg"))
+    frames_sorted = sorted(wanted)
+    tmp = os.path.join(out, "frames", "_tmp")
+    os.makedirs(tmp, exist_ok=True)
+    for f in os.listdir(tmp):
+        os.remove(os.path.join(tmp, f))
+    # Remotion 번들 ffmpeg 에는 select/fps 필터가 없으므로 전 프레임을 한 번에 디코드한 뒤 필요한 것만 남긴다.
+    ffmpeg("-i", video, "-vf", "scale=960:-2", "-q:v", "4", os.path.join(tmp, "%05d.jpg"))
+    missing = 0
+    for n in frames_sorted:
+        src = os.path.join(tmp, f"{n + 1:05d}.jpg")  # image2 muxer 는 1부터 번호를 매긴다
+        if not os.path.exists(src):
+            missing += 1
+            continue
+        for dst in wanted[n]:
+            with open(src, "rb") as a, open(dst, "wb") as b:
+                b.write(a.read())
+    for f in os.listdir(tmp):
+        os.remove(os.path.join(tmp, f))
+    os.rmdir(tmp)
+    if missing:
+        print(f"warning: {missing} requested frames were not decoded")
 
     # 장면별 시트
     for s in scenes:
@@ -86,8 +110,6 @@ def main() -> None:
         for dt in (-0.4, -0.2, -0.05, 0.05, 0.2, 0.4):
             t = max(0, min(total - 0.04, b + dt))
             p = os.path.join(out, "frames", f"b_{t:06.2f}.jpg")
-            if not os.path.exists(p):
-                grab(video, t, p)
             paths.append((p, f"{t:.2f}s ({dt:+.2f})"))
         sheet(paths, os.path.join(out, f'boundary-{i:02d}-{scenes[i-1]["id"]}__{scenes[i]["id"]}.png'), cols=6, width=400)
 
