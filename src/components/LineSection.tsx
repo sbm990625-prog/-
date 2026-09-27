@@ -52,7 +52,7 @@ export const LineSection: React.FC<Props> = ({
           <stop offset="0" stopColor="#1b2350" />
           <stop offset="1" stopColor="#0a0d22" />
         </linearGradient>
-        <filter id="sec-glow" x="-30%" y="-30%" width="160%" height="160%">
+        <filter id="sec-glow" filterUnits="userSpaceOnUse" x={0} y={0} width={1920} height={1080}>
           <feGaussianBlur stdDeviation="5" />
         </filter>
       </defs>

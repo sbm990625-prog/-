@@ -93,7 +93,7 @@ export const LineAerial: React.FC<Props> = ({
           <stop offset="0" stopColor="#f0d7a8" stopOpacity={1} />
           <stop offset="1" stopColor="#f0d7a8" stopOpacity={0} />
         </radialGradient>
-        <filter id="aer-glow" x="-10%" y="-300%" width="120%" height="700%">
+        <filter id="aer-glow" filterUnits="userSpaceOnUse" x={0} y={0} width={WIDTH} height={HEIGHT}>
           <feGaussianBlur stdDeviation="16" />
         </filter>
       </defs>
@@ -134,7 +134,7 @@ export const LineAerial: React.FC<Props> = ({
         <>
           <line x1={x1} y1={y1} x2={ex} y2={ey} stroke={color} strokeWidth={thickness * 5} strokeOpacity={0.55} strokeLinecap="round" filter="url(#aer-glow)" />
           <line x1={x1} y1={y1} x2={ex} y2={ey} stroke="#ffffff" strokeWidth={thickness} strokeLinecap="round" />
-          <circle cx={ex} cy={ey} r={thickness * 1.6} fill="#ffffff" />
+          {p > 0.01 ? <circle cx={ex} cy={ey} r={thickness * 1.6} fill="#ffffff" /> : null}
         </>
       ) : null}
       {label ? (

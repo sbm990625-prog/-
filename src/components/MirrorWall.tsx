@@ -115,7 +115,7 @@ export const MirrorWall: React.FC<Props> = ({
         <clipPath id="mw-clip">
           <path d={wallPath} />
         </clipPath>
-        <filter id="mw-blur" x="-20%" y="-20%" width="140%" height="140%">
+        <filter id="mw-blur" filterUnits="userSpaceOnUse" x={0} y={0} width={WIDTH} height={HEIGHT}>
           <feGaussianBlur stdDeviation="7" />
         </filter>
       </defs>

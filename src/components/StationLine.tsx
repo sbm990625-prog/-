@@ -62,7 +62,7 @@ export const StationLine: React.FC<Props> = ({
   return (
     <svg width={1920} height={1080} style={{ position: "absolute", inset: 0 }}>
       <defs>
-        <filter id="sl-glow" x="-50%" y="-200%" width="200%" height="500%">
+        <filter id="sl-glow" filterUnits="userSpaceOnUse" x={0} y={0} width={1920} height={1080}>
           <feGaussianBlur stdDeviation="6" />
         </filter>
       </defs>
