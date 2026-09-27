@@ -1,4 +1,4 @@
-export { SceneFrame } from "./SceneFrame";
+export { SceneFrame, HandoffContext } from "./SceneFrame";
 export { Caption } from "./Caption";
 export type { CaptionLine } from "./Caption";
 export { NeonText } from "./NeonText";
