@@ -1,0 +1,31 @@
+{
+  "name": "neom-line-what-if",
+  "version": "0.1.0",
+  "private": true,
+  "description": "사우디 네온 시티(NEOM 더 라인), 실제로 지어졌다면? — Remotion 모션그래픽 영상",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts Main out/neom-line.mp4",
+    "render:shorts": "remotion render src/index.ts Shorts out/neom-line-shorts.mp4",
+    "still": "remotion still src/index.ts Main",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@fontsource/black-han-sans": "^5.3.0",
+    "@fontsource/noto-sans-kr": "^5.3.0",
+    "@fontsource/orbitron": "^5.3.0",
+    "@remotion/cli": "^4.0.529",
+    "@remotion/transitions": "^4.0.529",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "remotion": "^4.0.529"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "^4.0.529",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "eslint": "^9.39.5",
+    "typescript": "^5.7.3"
+  }
+}
