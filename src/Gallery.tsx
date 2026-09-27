@@ -16,6 +16,16 @@ import {
   SceneFrame,
   Soundtrack,
   Vignette,
+  Glitch,
+  SourceTag,
+  Headlines,
+  Timeline,
+  PlanVsReality,
+  StationLine,
+  RaceLanes,
+  BirdFlock,
+  CanyonSun,
+  TypeWriter,
 } from "./components";
 
 /** 컴포넌트 미리보기용 컴포지션들 — 최종 영상엔 안 들어간다. */
@@ -115,5 +125,98 @@ export const GallerySound: React.FC = () => (
       ]}
     />
     <NeonText size={100}>사운드 테스트</NeonText>
+  </SceneFrame>
+);
+
+export const GalleryReality: React.FC = () => (
+  <SceneFrame fadeIn={0} fadeOut={0}>
+    <Glitch start={0} end={20} seed="gr">
+      <LineAerial drawStart={0} drawDuration={40} ghost built={2.4 / 170} builtLabel="2.4 km" />
+    </Glitch>
+    <Vignette />
+    <Caption lines={[{ text: "2030년까지 목표: **170km 중 2.4km**", from: 1, to: 5 }]} accent={COLORS.amber} />
+    <SourceTag text="블룸버그 · 2024.04" start={20} />
+  </SceneFrame>
+);
+
+export const GalleryHeadlines: React.FC = () => (
+  <SceneFrame fadeIn={0} fadeOut={0}>
+    <Headlines
+      start={0}
+      stagger={18}
+      items={[
+        { outlet: "Bloomberg", date: "2024.04.05", text: "2030년 목표, 170km → 2.4km로 축소" },
+        { outlet: "Hyundai E&C 공시", date: "2026.03.13", text: "더 라인 지하 터널 계약 해지" },
+        { outlet: "Semafor", date: "2026.05.22", text: "더 라인 공사, 2030년 이후로 연기" },
+      ]}
+    />
+  </SceneFrame>
+);
+
+export const GalleryTimeline: React.FC = () => (
+  <SceneFrame fadeIn={0} fadeOut={0}>
+    <Timeline
+      start={0}
+      stagger={10}
+      events={[
+        { date: "2021.01", label: "발표", color: COLORS.neon },
+        { date: "2022.07", label: "거울 디자인 공개", color: COLORS.neon },
+        { date: "2024.04", label: "2.4km로 축소" },
+        { date: "2025.07", label: "전면 재검토" },
+        { date: "2026.05", label: "2030년 이후로 연기" },
+      ]}
+    />
+  </SceneFrame>
+);
+
+export const GalleryPlanReality: React.FC = () => (
+  <SceneFrame fadeIn={0} fadeOut={0}>
+    <PlanVsReality
+      title="계획 인구 vs 실제 인구"
+      start={0}
+      rows={[
+        { label: "송도", plan: 265611, real: 212085, unit: "명", note: "2024.11" },
+        { label: "마스다르", plan: 50000, real: 6000, unit: "명", note: "2024" },
+        { label: "포레스트 시티", plan: 700000, real: 9000, unit: "명", note: "2024" },
+      ]}
+    />
+  </SceneFrame>
+);
+
+export const GalleryTrain: React.FC = () => (
+  <SceneFrame fadeIn={0} fadeOut={0}>
+    <StationLine stations={86} start={0} duration={140} totalMinutes={168} fromLabel="서쪽 끝" toLabel="동쪽 끝" y={420} />
+    <StationLine express start={0} duration={40} totalMinutes={20} y={760} color={COLORS.magenta} />
+  </SceneFrame>
+);
+
+export const GalleryRace: React.FC = () => (
+  <SceneFrame fadeIn={0} fadeOut={0}>
+    <RaceLanes
+      start={0}
+      duration={100}
+      lanes={[
+        { label: "더 라인 약속", sub: "170km · 510km/h 필요", minutes: 20, color: COLORS.neon },
+        { label: "KTX 서울→강릉", sub: "약 168km (직선)", minutes: 100, color: COLORS.neon2 },
+        { label: "86개 역 모두 정차", sub: "계산 · 역마다 30초", minutes: 168, color: COLORS.amber },
+      ]}
+    />
+  </SceneFrame>
+);
+
+export const GalleryBirds: React.FC = () => (
+  <SceneFrame fadeIn={0} fadeOut={0}>
+    <Desert time="dawn" horizon={700} />
+    <MirrorWall horizon={700} vanishX={600} nearX={2000} sunReflect={0.4} skyColors={["#0a0f2a", "#4a2c5e", "#ff9a6a"]} groundColors={["#8a5a3a", "#2e1c14"]} />
+    <BirdFlock start={0} duration={150} fromX={-200} toX={2200} wallX={1150} y={380} count={36} />
+  </SceneFrame>
+);
+
+export const GalleryCanyon: React.FC = () => (
+  <SceneFrame fadeIn={0} fadeOut={0} background={COLORS.bg2}>
+    <CanyonSun elevation={38.6} label="동지 정오" />
+    <div style={{ position: "absolute", left: 1300, top: 200 }}>
+      <TypeWriter text="바닥까지 해가 들려면 68.2° 이상" start={0} speed={2} />
+    </div>
   </SceneFrame>
 );

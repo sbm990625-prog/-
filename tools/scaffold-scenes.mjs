@@ -124,6 +124,29 @@ ${scenes
 );
 console.log(`wrote src/scenes/index.ts (${scenes.length} scenes, ${total} frames = ${(total / fps).toFixed(1)}s)`);
 
+// 장면별 독립 진입점: 한 장면만 번들하므로 다른 장면 파일이 깨져 있어도 미리보기가 된다.
+//   npx remotion still src/preview/<Name>.tsx Scene-<Name> out/x.png --frame=30
+const previewDir = join(ROOT, "src", "preview");
+mkdirSync(previewDir, { recursive: true });
+for (const s of scenes) {
+  writeFileSync(
+    join(previewDir, `${s.name}.tsx`),
+    `// 자동 생성: node tools/scaffold-scenes.mjs — 장면 하나만 번들하는 미리보기 진입점.
+import React from "react";
+import { Composition, registerRoot } from "remotion";
+import "../fonts.css";
+import { ${s.name} } from "../scenes/${s.name}";
+
+const PreviewRoot: React.FC = () => (
+  <Composition id="Scene-${s.name}" component={${s.name}} durationInFrames={${s.durationInFrames}} fps={${fps}} width={1920} height={1080} />
+);
+
+registerRoot(PreviewRoot);
+`,
+  );
+}
+console.log(`wrote src/preview/*.tsx (${scenes.length})`);
+
 const mainFile = join(ROOT, "src", "Main.tsx");
 if (!existsSync(mainFile)) {
   writeFileSync(

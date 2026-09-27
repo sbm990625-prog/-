@@ -21,6 +21,12 @@ type Props = {
   label?: string;
   /** 밤 모드: 어두운 사막 + 빛나는 선 */
   night?: boolean;
+  /** 계획 전체(170km)를 점선 유령선으로 깔아 둔다 */
+  ghost?: boolean;
+  /** 실제 지어진 구간 비율 (0..1). 정해지면 x1 부터 이 비율만 amber 로 굵게 칠한다 (예: 2.4/170) */
+  built?: number;
+  builtLabel?: string;
+  builtColor?: string;
 };
 
 const ridge = (seed: number, y0: number, amp: number): string => {
@@ -49,6 +55,10 @@ export const LineAerial: React.FC<Props> = ({
   sea = true,
   label,
   night = true,
+  ghost = false,
+  built,
+  builtLabel,
+  builtColor = COLORS.amber,
 }) => {
   const frame = useCurrentFrame();
   const p = draw ?? progress(frame, drawStart, drawStart + drawDuration);
@@ -104,10 +114,29 @@ export const LineAerial: React.FC<Props> = ({
           <path d={`M${x1 - 150},0 C${x1 - 60},${HEIGHT * 0.25} ${x1 - 230},${HEIGHT * 0.65} ${x1 - 110},${HEIGHT}`} fill="none" stroke="#ffffff" strokeOpacity={0.25} strokeWidth={3} />
         </>
       ) : null}
+      {ghost ? (
+        <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeOpacity={0.35} strokeWidth={thickness * 0.6} strokeDasharray="14 12" />
+      ) : null}
+      {built !== undefined ? (
+        <g>
+          <line x1={x1} y1={y1} x2={x1 + (x2 - x1) * built * p} y2={y1 + (y2 - y1) * built * p} stroke={builtColor} strokeWidth={thickness * 6} strokeOpacity={0.45} filter="url(#aer-glow)" />
+          <line x1={x1} y1={y1} x2={x1 + (x2 - x1) * built * p} y2={y1 + (y2 - y1) * built * p} stroke={builtColor} strokeWidth={thickness * 2.2} strokeLinecap="round" />
+          <circle cx={x1} cy={y1} r={46} fill="none" stroke={builtColor} strokeWidth={3} strokeDasharray="6 6" opacity={p} />
+          {builtLabel ? (
+            <text x={x1} y={y1 + 98} textAnchor="middle" fill={builtColor} fontFamily={FONTS.num} fontWeight={900} fontSize={48} opacity={p}>
+              {builtLabel}
+            </text>
+          ) : null}
+        </g>
+      ) : null}
       {/* 빛의 선 */}
-      <line x1={x1} y1={y1} x2={ex} y2={ey} stroke={color} strokeWidth={thickness * 5} strokeOpacity={0.55} strokeLinecap="round" filter="url(#aer-glow)" />
-      <line x1={x1} y1={y1} x2={ex} y2={ey} stroke="#ffffff" strokeWidth={thickness} strokeLinecap="round" />
-      <circle cx={ex} cy={ey} r={thickness * 1.6} fill="#ffffff" />
+      {built === undefined ? (
+        <>
+          <line x1={x1} y1={y1} x2={ex} y2={ey} stroke={color} strokeWidth={thickness * 5} strokeOpacity={0.55} strokeLinecap="round" filter="url(#aer-glow)" />
+          <line x1={x1} y1={y1} x2={ex} y2={ey} stroke="#ffffff" strokeWidth={thickness} strokeLinecap="round" />
+          <circle cx={ex} cy={ey} r={thickness * 1.6} fill="#ffffff" />
+        </>
+      ) : null}
       {label ? (
         <g opacity={progress(frame, drawStart + drawDuration * 0.5, drawStart + drawDuration * 0.5 + 12)}>
           <text
