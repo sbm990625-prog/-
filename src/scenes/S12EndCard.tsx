@@ -1,18 +1,20 @@
 import React, { useMemo } from "react";
-import { AbsoluteFill, Easing, interpolate, interpolateColors, random, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Easing, interpolate, interpolateColors, random, useCurrentFrame } from "remotion";
 import { COLORS, FONTS, HEIGHT, WIDTH } from "../theme";
 import { progress } from "../utils/anim";
 import { Grain, LineAerial, SceneFrame, SourceTag, Vignette } from "../components";
 
 /**
- * s12-end-card — 오프닝의 170km 빛의 선을 되받는 엔드 카드.
- * 선이 먼 끝(앞쪽 끝)부터 구간별로 지직거리며 꺼지고, 2.4km 앰버 불씨 하나만 숨 쉬듯 남는다.
- * 84.8s → 91s (186 frames). 끝: 불씨가 어두워지고 레터박스가 살짝 닫히며 검정으로.
+ * s12-end-card — 오프닝(s01)의 170km 빛의 선을 같은 카메라·같은 좌표로 되받는 엔드 카드.
+ * 첫 프레임은 s01 과 같은 구도(선 전체가 빛남) → 약 0.6초 유지 → 먼 끝(1400,520)부터 구간별로 지직거리며 꺼지고,
+ * 카메라가 꺼지는 선을 따라 x1 끝의 2.4km 앰버 불씨로 옆걸음(달리)해 불씨가 화면 가운데에 선다.
+ * 84.8s → 91s (186 frames). 끝(90.0s~): 불씨가 꺼지고 레터박스가 40px 닫히며 약 0.9초 동안 검정으로.
  * 자막 타이밍(절대): L1 85.1–87.4 / L2 87.4–91.0 / 락업 87.4–91.0 → 장면 기준 0.3–2.6 / 2.6–6.2.
  */
 
 // ── 타이밍 (프레임, 장면 기준) ────────────────────────────────
-const F_KILL0 = 12; // 첫 구간이 꺼지는 프레임
+const F_HOLD = 13; // 0–13: 선 전체가 최대 밝기로 유지 (s01 의 마지막 인상)
+const F_KILL0 = 18; // 첫 구간(먼 끝)이 꺼지는 프레임 (지직임은 5프레임 전부터)
 const KILL_STEP = 4; // 구간 사이 간격
 const N_SEG = 12;
 const F_EMBER = F_KILL0 + (N_SEG - 1) * KILL_STEP; // 마지막 시안 구간이 꺼짐 → 불씨가 앰버로
@@ -20,18 +22,22 @@ const F_L1_IN = 9; // 85.1s
 const F_L1_OUT = 78; // 87.4s
 const F_L2_IN = 78; // 87.4s
 const F_LOCK_IN = 84;
-const F_END_DIM = 171; // 마지막 0.5초
+const F_REFL_GONE = 114; // 88.6s — 반사는 여기까지 완전히 사라진다
+const F_END_DIM = 156; // 90.0s — 불씨 꺼짐 + 레터박스 닫힘 시작
+const F_BLACK0 = 159; // 검정 페이드 시작 (~0.9s)
 const F_END = 186;
 
-// ── 궤도 시점 지면 (s01 과 같은 카메라 공식) ───────────────────────
+// ── 궤도 시점 지면 (s01 LineAerial 카메라와 완전히 같은 값) ─────────
 const PERSP = 1400;
 const TILT = 50; // deg
 const SX = 1.8;
 const SY = 1.6;
 const PLANE_CY = 640;
-/** x1 = 불씨(실제 지어진 2.4km)가 있는 먼 끝, x2 = 카메라 쪽 끝 */
-const LINE = { x1: 940, y1: 190, x2: 1275, y2: 765 };
+/** s01 과 같은 선. x1 = 카메라 쪽 끝(해안) = 실제 지어진 2.4km 불씨, x2 = 먼 끝 */
+const LINE = { x1: 600, y1: 660, x2: 1400, y2: 520 };
 const BUILT = 2.4 / 170;
+/** 평면을 왼쪽(바다)으로 넓혀, 카메라가 옆으로 움직여도 가장자리가 보이지 않게 */
+const PLANE_EXT = 1400;
 
 const project = (x: number, y: number): { x: number; y: number; s: number } => {
   const t = (TILT * Math.PI) / 180;
@@ -48,7 +54,17 @@ const lerpPt = (t: number) => ({ x: LINE.x1 + (LINE.x2 - LINE.x1) * t, y: LINE.y
 const EMBER_PLANE = lerpPt(BUILT / 2);
 const EMBER = project(EMBER_PLANE.x, EMBER_PLANE.y);
 
-/** 구간 k (0 = 카메라 쪽 끝) 의 밝기: 켜짐 → 지직 → 식어서 꺼짐 */
+// ── 카메라: 0.5초 s01 구도 유지 → 꺼지는 선을 따라 불씨 쪽으로 달리 ─────
+const CAM_ZOOM = 1.1;
+const CAM_TX = WIDTH / 2 - EMBER.x; // 불씨가 가로 가운데로
+const CAM_TY = -40;
+const camera = (frame: number) => {
+  const p = progress(frame, F_HOLD + 1, 150, Easing.inOut(Easing.sin));
+  const drift = progress(frame, 150, F_END, Easing.linear);
+  return { tx: CAM_TX * p, ty: CAM_TY * p, s: 1 + (CAM_ZOOM - 1) * p + 0.015 * drift };
+};
+
+/** 구간 k (0 = 먼 끝 x2) 의 밝기: 켜짐 → 지직 → 식어서 꺼짐 */
 const segIntensity = (frame: number, k: number): number => {
   const kill = F_KILL0 + k * KILL_STEP;
   if (frame < kill - 5) return 1;
@@ -63,14 +79,17 @@ const litFraction = (frame: number): number => {
   return lit / N_SEG;
 };
 
-// ── 하늘 + 별 ─────────────────────────────────────────────────
+/** 마지막 1초: 불씨가 어두워짐 */
+const endDimAt = (frame: number): number => 1 - progress(frame, F_END_DIM, F_END_DIM + 22, Easing.in(Easing.quad));
+
+// ── 하늘 + 별 (무한히 먼 배경 — 카메라 옆걸음에 따라 움직이지 않음) ─────
 const Sky: React.FC<{ lit: number }> = ({ lit }) => {
   const frame = useCurrentFrame();
   const stars = useMemo(
     () =>
-      Array.from({ length: 90 }, (_, i) => ({
+      Array.from({ length: 110 }, (_, i) => ({
         x: random(`s12-sx${i}`) * WIDTH,
-        y: 60 + random(`s12-sy${i}`) * (HORIZON_Y + 30),
+        y: 60 + random(`s12-sy${i}`) * (HORIZON_Y - 40),
         r: 0.6 + random(`s12-sr${i}`) ** 3 * 2.2,
         ph: random(`s12-sp${i}`) * Math.PI * 2,
         sp: 0.05 + random(`s12-ss${i}`) * 0.1,
@@ -82,8 +101,8 @@ const Sky: React.FC<{ lit: number }> = ({ lit }) => {
     <svg width={WIDTH} height={HEIGHT} style={{ position: "absolute", inset: 0 }}>
       <defs>
         <linearGradient id="s12-sky" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#020309" />
-          <stop offset={(HORIZON_Y / HEIGHT) * 0.75} stopColor="#080a1e" />
+          <stop offset="0" stopColor="#03040b" />
+          <stop offset={(HORIZON_Y / HEIGHT) * 0.8} stopColor="#0a0c24" />
           <stop offset={HORIZON_Y / HEIGHT} stopColor={interpolateColors(lit, [0, 1], ["#120f22", "#1a1440"])} />
           <stop offset="1" stopColor="#05060f" />
         </linearGradient>
@@ -98,16 +117,16 @@ const Sky: React.FC<{ lit: number }> = ({ lit }) => {
   );
 };
 
-// ── 지면 위 옅은 측정 그리드 ─────────────────────────────────────
+// ── 지면 위 옅은 측정 그리드 (넓힌 평면 전체) ─────────────────────
 const PlaneGrid: React.FC<{ opacity: number }> = ({ opacity }) => {
   const lines = useMemo(() => {
     const out: React.ReactNode[] = [];
-    for (let x = 0; x <= WIDTH; x += 120) out.push(<line key={`gx${x}`} x1={x} y1={0} x2={x} y2={HEIGHT} />);
-    for (let y = 0; y <= HEIGHT; y += 120) out.push(<line key={`gy${y}`} x1={0} y1={y} x2={WIDTH} y2={y} />);
+    for (let x = -PLANE_EXT; x <= WIDTH; x += 120) out.push(<line key={`gx${x}`} x1={x} y1={0} x2={x} y2={HEIGHT} />);
+    for (let y = 0; y <= HEIGHT; y += 120) out.push(<line key={`gy${y}`} x1={-PLANE_EXT} y1={y} x2={WIDTH} y2={y} />);
     return out;
   }, []);
   return (
-    <svg width={WIDTH} height={HEIGHT} style={{ position: "absolute", inset: 0 }}>
+    <svg width={WIDTH + PLANE_EXT} height={HEIGHT} viewBox={`${-PLANE_EXT} 0 ${WIDTH + PLANE_EXT} ${HEIGHT}`} style={{ position: "absolute", left: -PLANE_EXT, top: 0 }}>
       <g stroke={COLORS.neon} strokeOpacity={opacity} strokeWidth={1.2}>
         {lines}
       </g>
@@ -127,18 +146,21 @@ const DyingLine: React.FC = () => {
       }),
     [],
   );
-  // 처음 몇 프레임: 선 전체가 네온처럼 한 번 부풀었다가
-  const swell = 1 + 0.25 * Math.sin(Math.PI * progress(frame, 0, F_KILL0 - 2, Easing.inOut(Easing.sin)));
+  // 유지 구간: s01 처럼 숨 쉬는 시안 빛
+  const breathe = 0.9 + 0.1 * Math.sin(frame / 5);
   const emberT = progress(frame, F_EMBER - 2, F_EMBER + 16, Easing.inOut(Easing.cubic));
   const emberColor = interpolateColors(emberT, [0, 1], [COLORS.neon, COLORS.ember]);
   const breath = 0.82 + 0.18 * Math.sin((frame - F_EMBER) / 9);
-  const endDim = 1 - progress(frame, F_END_DIM, F_END - 1, Easing.in(Easing.quad));
+  const endDim = endDimAt(frame);
   const emberI = (emberT < 1 ? 1 : breath) * endDim;
   const a0 = lerpPt(0);
   const a1 = lerpPt(BUILT);
   return (
     <svg width={WIDTH} height={HEIGHT} style={{ position: "absolute", inset: 0, overflow: "visible" }}>
       <defs>
+        <filter id="s12-glow" filterUnits="userSpaceOnUse" x={0} y={0} width={WIDTH} height={HEIGHT}>
+          <feGaussianBlur stdDeviation={14} />
+        </filter>
         <radialGradient id="s12-spill">
           <stop offset="0" stopColor={COLORS.ember} stopOpacity={0.55} />
           <stop offset="0.35" stopColor={COLORS.ember} stopOpacity={0.18} />
@@ -152,22 +174,29 @@ const DyingLine: React.FC = () => {
         x2={LINE.x2}
         y2={LINE.y2}
         stroke={COLORS.neon}
-        strokeOpacity={0.14 * endDim}
-        strokeWidth={1.6}
+        strokeOpacity={0.16 * progress(frame, F_KILL0, F_KILL0 + 10) * endDim}
+        strokeWidth={1.8}
         strokeDasharray="7 9"
       />
+      {/* s01 과 같은 층: 블러 번짐 + 시안 외피 + 흰 심지 */}
+      <g filter="url(#s12-glow)">
+        {segs.map(({ a, b, k }) => {
+          const i = segIntensity(frame, k) * (frame < F_KILL0 - 5 ? breathe : 1);
+          if (i < 0.01) return null;
+          return <line key={k} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={COLORS.neon} strokeOpacity={Math.min(1, 0.55 * i)} strokeWidth={22} />;
+        })}
+      </g>
       {segs.map(({ a, b, k }) => {
-        const i = segIntensity(frame, k) * swell;
+        const i = segIntensity(frame, k) * (frame < F_KILL0 - 5 ? breathe : 1);
         if (i < 0.01) return null;
         return (
           <g key={k}>
-            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={COLORS.neon} strokeOpacity={Math.min(1, 0.1 * i)} strokeWidth={30} />
-            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={COLORS.neon} strokeOpacity={Math.min(1, 0.45 * i)} strokeWidth={9} />
-            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#f2feff" strokeOpacity={Math.min(1, i)} strokeWidth={3} />
+            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={COLORS.neon} strokeOpacity={Math.min(1, 0.55 * i)} strokeWidth={9} />
+            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#f2feff" strokeOpacity={Math.min(1, i)} strokeWidth={3.2} />
           </g>
         );
       })}
-      {/* 꺼지는 순간의 작은 스파크 */}
+      {/* 꺼지는 순간의 작은 스파크 (구간의 불씨 쪽 끝) */}
       {segs.map(({ a, k }) => {
         const kill = F_KILL0 + k * KILL_STEP;
         const sp = frame >= kill && frame < kill + 5 ? 1 - (frame - kill) / 5 : 0;
@@ -192,8 +221,7 @@ const EmberHalo: React.FC = () => {
   const frame = useCurrentFrame();
   const emberT = progress(frame, F_EMBER - 2, F_EMBER + 20, Easing.inOut(Easing.cubic));
   const breath = 0.8 + 0.2 * Math.sin((frame - F_EMBER) / 9);
-  const endDim = 1 - progress(frame, F_END_DIM, F_END - 1, Easing.in(Easing.quad));
-  const o = emberT * breath * endDim;
+  const o = emberT * breath * endDimAt(frame);
   if (o <= 0.001) return null;
   const r = 150 * (0.9 + 0.1 * breath);
   return (
@@ -231,78 +259,87 @@ const EmberHalo: React.FC = () => {
 const World: React.FC = () => {
   const frame = useCurrentFrame();
   const lit = litFraction(frame);
-  // 불씨를 향한 느린 푸시인 (불씨가 화면 위치를 거의 지킨다)
-  const scale = interpolate(frame, [0, F_END], [1.0, 1.12], { easing: Easing.inOut(Easing.sin) });
-  const lift = interpolate(frame, [0, F_END], [18, -6], { easing: Easing.inOut(Easing.sin) });
+  const cam = camera(frame);
   return (
-    <AbsoluteFill style={{ transform: `translateY(${lift}px) scale(${scale})`, transformOrigin: `${EMBER.x}px ${EMBER.y}px` }}>
+    <AbsoluteFill>
       <Sky lit={lit} />
-      <AbsoluteFill style={{ perspective: PERSP, perspectiveOrigin: `${WIDTH / 2}px ${HEIGHT / 2}px` }}>
-        <div
-          style={{
-            position: "absolute",
-            left: 0,
-            top: PLANE_CY - HEIGHT / 2,
-            width: WIDTH,
-            height: HEIGHT,
-            transform: `rotateX(${TILT}deg) scale(${SX}, ${SY})`,
-            transformOrigin: "50% 50%",
-          }}
-        >
-          {/* 사막·바다 바탕만 (선은 아래에서 직접 그린다) */}
-          <LineAerial draw={0} night sea thickness={0.01} x1={LINE.x1} y1={LINE.y1} x2={LINE.x2} y2={LINE.y2} />
+      <AbsoluteFill style={{ transform: `translate(${cam.tx}px, ${cam.ty}px) scale(${cam.s})`, transformOrigin: `${EMBER.x}px ${EMBER.y}px` }}>
+        <AbsoluteFill style={{ perspective: PERSP, perspectiveOrigin: `${WIDTH / 2}px ${HEIGHT / 2}px` }}>
           <div
             style={{
               position: "absolute",
-              inset: 0,
-              background: `linear-gradient(180deg, rgba(6,7,22,${0.72 + 0.12 * (1 - lit)}) 0%, rgba(6,7,22,${0.42 + 0.2 * (1 - lit)}) 45%, rgba(4,5,14,${0.55 + 0.15 * (1 - lit)}) 100%)`,
+              left: 0,
+              top: PLANE_CY - HEIGHT / 2,
+              width: WIDTH,
+              height: HEIGHT,
+              transform: `rotateX(${TILT}deg) scale(${SX}, ${SY})`,
+              transformOrigin: "50% 50%",
             }}
-          />
-          <PlaneGrid opacity={0.035 + 0.035 * lit} />
-          <DyingLine />
-        </div>
+          >
+            {/* 왼쪽 바다 연장 (LineAerial 바다의 가장 먼 색) */}
+            <div style={{ position: "absolute", left: -PLANE_EXT, top: 0, width: PLANE_EXT + 4, height: HEIGHT, background: "#061a30" }} />
+            {/* s01 과 같은 사막·바다 바탕 (선은 아래에서 직접 그린다) */}
+            <LineAerial draw={0} night sea thickness={0.01} x1={LINE.x1} y1={LINE.y1} x2={LINE.x2} y2={LINE.y2} />
+            <div
+              style={{
+                position: "absolute",
+                left: -PLANE_EXT,
+                right: 0,
+                top: 0,
+                bottom: 0,
+                background: `linear-gradient(180deg, rgba(6,7,22,${0.72 + 0.1 * (1 - lit)}) 0%, rgba(6,7,22,${0.38 + 0.18 * (1 - lit)}) 45%, rgba(4,5,14,${0.5 + 0.15 * (1 - lit)}) 100%)`,
+              }}
+            />
+            <PlaneGrid opacity={0.035 + 0.035 * lit} />
+            <DyingLine />
+          </div>
+        </AbsoluteFill>
+        {/* 지평선 대기광 — 도시의 빛이 꺼질수록 식는다 */}
+        <div
+          style={{
+            position: "absolute",
+            left: -WIDTH,
+            right: -WIDTH,
+            top: HORIZON_Y - 110,
+            height: 200,
+            opacity: 0.35 + 0.65 * lit,
+            background: `linear-gradient(180deg, rgba(10,12,36,0) 0%, rgba(90,64,200,0.30) 48%, rgba(150,200,255,0.30) 55%, rgba(40,30,96,0.35) 60%, rgba(5,6,15,0) 100%)`,
+          }}
+        />
+        <div
+          style={{
+            position: "absolute",
+            left: -WIDTH,
+            right: -WIDTH,
+            top: HORIZON_Y,
+            height: 2,
+            opacity: 0.4 + 0.6 * lit,
+            background: `linear-gradient(90deg, rgba(56,242,255,0) 0%, rgba(160,220,255,0.55) 38%, rgba(160,220,255,0.55) 62%, rgba(56,242,255,0) 100%)`,
+          }}
+        />
+        <EmberHalo />
       </AbsoluteFill>
-      {/* 지평선 대기광 — 도시의 빛이 꺼질수록 식는다 */}
-      <div
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          top: HORIZON_Y - 110,
-          height: 200,
-          opacity: 0.35 + 0.65 * lit,
-          background: `linear-gradient(180deg, rgba(10,12,36,0) 0%, rgba(90,64,200,0.26) 48%, rgba(150,200,255,0.24) 55%, rgba(40,30,96,0.3) 60%, rgba(5,6,15,0) 100%)`,
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          top: HORIZON_Y,
-          height: 2,
-          opacity: 0.4 + 0.6 * lit,
-          background: `linear-gradient(90deg, rgba(56,242,255,0) 0%, rgba(160,220,255,0.5) 35%, rgba(160,220,255,0.5) 65%, rgba(56,242,255,0) 100%)`,
-        }}
-      />
-      <EmberHalo />
     </AbsoluteFill>
   );
 };
 
 // ── 텍스트 ─────────────────────────────────────────────────────
-const L1_Y = 492; // 불씨 아래
-const L2_TOP = 506;
+const L1_Y = 826; // 선 아래, 선의 경로와 겹치지 않는 자리
+const L2_TOP = 392;
 const L2_SIZE = 92;
 const L2_H = Math.round(L2_SIZE * 1.25);
-const LOCK_Y = 872;
+const REFL_GAP = 36; // L2 글자 아래 반사 글자까지의 거리
+/** 줄 상자 안에서 글자가 차지하지 않는 위·아래 여백 — 반사를 글자 기준으로 36px 에 맞추려고 뺀다 */
+const REFL_PAD = 62;
+const LOCK_Y = 880;
 
 const Center: React.FC<{ top: number; children: React.ReactNode; style?: React.CSSProperties }> = ({ top, children, style }) => (
   <div style={{ position: "absolute", left: 0, right: 0, top, display: "flex", justifyContent: "center", ...style }}>{children}</div>
 );
 
+/** 문장 속 숫자: 본문 서체(Noto Sans KR 700) + 강조색 */
 const Num: React.FC<{ color: string; children: React.ReactNode }> = ({ color, children }) => (
-  <span style={{ fontFamily: FONTS.num, fontWeight: 800, color, letterSpacing: 1, textShadow: `0 0 18px ${color}66, 0 2px 8px rgba(0,0,0,0.9)` }}>{children}</span>
+  <span style={{ fontFamily: FONTS.body, fontWeight: 700, color, textShadow: `0 0 18px ${color}66, 0 2px 8px rgba(0,0,0,0.9)` }}>{children}</span>
 );
 
 const LineOne: React.FC = () => {
@@ -343,49 +380,40 @@ const L2_STYLE: React.CSSProperties = {
   letterSpacing: -0.5,
   whiteSpace: "nowrap",
 };
-const STRIPS = 16;
 
-/** 거울면처럼 뒤집힌 옅은 반사 — 생겼다가 물결치며 사라진다 (가로 띠마다 사인 변위) */
+/** 거울면처럼 뒤집힌 옅은 반사 — 0.15 로 생겼다가 물결치며 88.6s 까지 완전히 사라진다 */
 const Reflection: React.FC = () => {
   const frame = useCurrentFrame();
-  const appear = progress(frame, F_L2_IN + 8, F_L2_IN + 30);
-  const vanish = progress(frame, 128, 166, Easing.in(Easing.quad));
-  const o = 0.3 * appear * (1 - vanish);
-  if (o <= 0.002) return null;
-  const amp = interpolate(frame, [104, 160], [0.6, 26], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.in(Easing.quad) });
-  const sh = L2_H / STRIPS;
+  const appear = progress(frame, F_L2_IN + 4, F_L2_IN + 14);
+  const vanish = progress(frame, F_L2_IN + 18, F_REFL_GONE, Easing.in(Easing.quad));
+  const o = 0.15 * appear * (1 - vanish);
+  const amp = interpolate(frame, [F_L2_IN, F_REFL_GONE], [14, 40], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.in(Easing.quad) });
+  const fy = 0.05 + 0.012 * Math.sin(frame * 0.35);
+  const fx = 0.004 + 0.001 * Math.cos(frame * 0.27);
   return (
-    <div
-      style={{
-        position: "relative",
-        width: 1600,
-        height: L2_H,
-        opacity: o,
-        WebkitMaskImage: "linear-gradient(180deg, rgba(0,0,0,1) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0) 100%)",
-        maskImage: "linear-gradient(180deg, rgba(0,0,0,1) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0) 100%)",
-      }}
-    >
-      {Array.from({ length: STRIPS }, (_, i) => {
-        const dx = amp * Math.sin(i * 0.85 + frame * 0.32) * (0.4 + (0.6 * i) / STRIPS);
-        return (
-          <div key={i} style={{ position: "absolute", left: 0, right: 0, top: i * sh, height: sh + 0.6, overflow: "hidden" }}>
-            <div
-              style={{
-                position: "absolute",
-                left: 0,
-                right: 0,
-                top: -i * sh,
-                height: L2_H,
-                display: "flex",
-                justifyContent: "center",
-                transform: `translateX(${dx}px) scaleY(-1)`,
-              }}
-            >
-              <div style={L2_STYLE}>{L2_TEXT}</div>
-            </div>
+    <div style={{ position: "relative", width: 1600, height: L2_H, marginTop: REFL_GAP - 3.5 - REFL_PAD }}>
+      <svg width={0} height={0} style={{ position: "absolute" }}>
+        <filter id="s12-ripple" x="-5%" y="-30%" width="110%" height="160%">
+          <feTurbulence type="turbulence" baseFrequency={`${fx} ${fy}`} numOctaves={2} seed={7} result="n" />
+          <feDisplacementMap in="SourceGraphic" in2="n" scale={amp} xChannelSelector="R" yChannelSelector="G" result="d" />
+          <feGaussianBlur in="d" stdDeviation={3} />
+        </filter>
+      </svg>
+      {o > 0.002 ? (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            opacity: o,
+            WebkitMaskImage: "linear-gradient(180deg, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 100%)",
+            maskImage: "linear-gradient(180deg, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 100%)",
+          }}
+        >
+          <div style={{ position: "absolute", inset: 0, display: "flex", justifyContent: "center", filter: "url(#s12-ripple)" }}>
+            <div style={{ ...L2_STYLE, transform: "scaleY(-1)" }}>{L2_TEXT}</div>
           </div>
-        );
-      })}
+        </div>
+      ) : null}
     </div>
   );
 };
@@ -393,10 +421,11 @@ const Reflection: React.FC = () => {
 const LineTwo: React.FC = () => {
   const frame = useCurrentFrame();
   const inP = progress(frame, F_L2_IN, F_L2_IN + 22, Easing.out(Easing.cubic));
-  const outP = progress(frame, F_END_DIM - 4, F_END - 4, Easing.in(Easing.quad));
+  // 마지막으로 읽히는 글자는 락업 — L2 가 먼저 물러난다
+  const outP = progress(frame, F_END_DIM - 6, F_END_DIM + 16, Easing.in(Easing.quad));
   const o = inP * (1 - outP);
   if (o <= 0) return null;
-  const surface = progress(frame, F_L2_IN + 6, F_L2_IN + 34, Easing.inOut(Easing.cubic)) * (1 - progress(frame, 140, 168));
+  const surface = progress(frame, F_L2_IN + 6, F_L2_IN + 30, Easing.inOut(Easing.cubic)) * (1 - progress(frame, F_REFL_GONE - 10, F_REFL_GONE + 16));
   return (
     <div style={{ position: "absolute", left: 0, right: 0, top: L2_TOP, display: "flex", flexDirection: "column", alignItems: "center" }}>
       <div
@@ -415,7 +444,7 @@ const LineTwo: React.FC = () => {
           width: 1180 * surface,
           height: 1.5,
           marginTop: 2,
-          background: "linear-gradient(90deg, rgba(255,243,226,0) 0%, rgba(255,243,226,0.45) 50%, rgba(255,243,226,0) 100%)",
+          background: "linear-gradient(90deg, rgba(255,243,226,0) 0%, rgba(255,243,226,0.4) 50%, rgba(255,243,226,0) 100%)",
           opacity: o,
         }}
       />
@@ -462,10 +491,10 @@ const Lockup: React.FC = () => {
   );
 };
 
-/** 레터박스: 들어올 때 열리고, 마지막 0.5초에 살짝 닫힌다 */
+/** 레터박스: 들어올 때 열리고, 90.0s 부터 40px 더 닫힌다 */
 const ClosingLetterBox: React.FC = () => {
   const frame = useCurrentFrame();
-  const h = 84 * progress(frame, 0, 20) + 44 * progress(frame, F_END_DIM, F_END - 1, Easing.inOut(Easing.cubic));
+  const h = 84 * progress(frame, 0, 20) + 40 * progress(frame, F_END_DIM, F_END - 2, Easing.inOut(Easing.cubic));
   if (h <= 0.5) return null;
   return (
     <>
@@ -477,22 +506,34 @@ const ClosingLetterBox: React.FC = () => {
 
 export const S12EndCard: React.FC = () => {
   const frame = useCurrentFrame();
-  const { durationInFrames } = useVideoConfig();
-  // 검정으로 페이드 — 마지막 프레임은 완전한 검정
-  const black = progress(frame, F_END_DIM + 3, durationInFrames - 1, Easing.inOut(Easing.quad));
+  // 검정으로 페이드 (~0.9s) — 마지막 프레임은 완전한 검정
+  const black = progress(frame, F_BLACK0, F_END - 1, Easing.inOut(Easing.quad));
+  const l1Band = progress(frame, F_L1_IN - 4, F_L1_IN + 14) * (1 - progress(frame, F_L1_OUT - 8, F_L1_OUT + 6));
+  const l2Band = progress(frame, F_L2_IN - 8, F_L2_IN + 16);
   return (
-    <SceneFrame fadeIn={12} fadeOut={0}>
+    <SceneFrame fadeIn={0} fadeOut={0}>
       <World />
-      {/* 글자 가독용 어둠 띠 (가운데 아래) */}
+      {/* 글자 가독용 어둠 띠 */}
       <div
         style={{
           position: "absolute",
           left: 0,
           right: 0,
-          top: 430,
-          height: 520,
-          background: "radial-gradient(ellipse 60% 50% at 50% 45%, rgba(3,4,10,0.72) 0%, rgba(3,4,10,0.4) 55%, rgba(3,4,10,0) 100%)",
-          opacity: progress(frame, 0, 24),
+          top: L1_Y - 70,
+          height: 230,
+          background: "radial-gradient(ellipse 42% 50% at 50% 50%, rgba(3,4,10,0.7) 0%, rgba(3,4,10,0.35) 55%, rgba(3,4,10,0) 100%)",
+          opacity: l1Band,
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: L2_TOP - 90,
+          height: 300,
+          background: "radial-gradient(ellipse 52% 50% at 50% 45%, rgba(3,4,10,0.7) 0%, rgba(3,4,10,0.38) 55%, rgba(3,4,10,0) 100%)",
+          opacity: l2Band,
         }}
       />
       <LineOne />

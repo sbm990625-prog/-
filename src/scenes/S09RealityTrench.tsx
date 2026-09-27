@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { AbsoluteFill, Easing, interpolate, random, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Easing, interpolate, random, useCurrentFrame } from "remotion";
 import { COLORS, FONTS, HEIGHT, WIDTH } from "../theme";
 import { progress } from "../utils/anim";
 import { Caption, Grain, SceneFrame, SourceTag, Vignette } from "../components";
@@ -8,15 +8,17 @@ import { Caption, Grain, SceneFrame, SourceTag, Vignette } from "../components";
  * s09-reality-trench — 현실로. (57.2s → 64.0s, 204 frames)
  * s08 의 6프레임 검정 뒤 하드 컷. 레터박스·글로우 없음, 평평한 한낮 빛, 앰버·모래·콘크리트.
  *
- *   0–6f    하드 컷 + 노출 과다 한 번 (사진 셔터 느낌)
- *   0–30f   한낮 항공 와이드: s08 과 같은 자리의 170km 계획선 = 흐린 시안 점선 유령, 바닷가 끝에 작은 앰버 조각
- *   18–84f  앰버 조각이 화면을 채울 때까지 급 줌인 (로그 줌 + 선을 수평으로 돌림)
- *   62–96f  앰버 띠 → 회색 콘크리트 트렌치(낮은 옹벽·배관, 위로 솟은 것 없음)로 교차
- *   96–150f 하단 계획 대 현실 막대 (시안 윤곽 100% vs 앰버 채움, 카운터 1.4% 에서 멈춤)
- *   112–150f 트렌치 위로 계획된 벽의 흐린 시안 점선 유령 + 콜아웃 '수직 구조물 없음'
- *   192–204f whoosh push (왼쪽으로 밀려 나감)
- * 자막: L1 57.5–60.5 → 0.3–3.3 / L2 60.5–64.0 → 3.3–6.8
+ *   0f      하드 컷 (플래시 없음) — 첫 프레임부터 한낮 항공 와이드
+ *   0–54f   s08 과 같은 자리의 170km 계획선 = 시안 점선 유령(어두운 윤곽), 바닷가 끝에 작은 앰버 조각, '170km (계획)' 유지
+ *   18–66f  앰버 조각을 향해 로그 줌 + 선을 수평으로 돌림. 줌이 커질수록 앰버 조각이 위에서 본 트렌치(회색 수로·옹벽 테두리)로 드러남
+ *   66–76f  브리지: 수로 중심으로 1→3 배 스케일 + 측면 트렌치(낮은 옹벽·배관, 위로 솟은 것 없음)로 교차 페이드
+ *   100–150f 하단 계획 대 현실 막대 (시안 윤곽 100% vs 앰버 채움, 카운터 1.4% 에서 멈춤)
+ *   118–150f 트렌치 위로 계획된 벽의 흐린 시안 점선 유령 + 콜아웃 '수직 구조물 없음'
+ *   끝      Main 이 whoosh push 를 담당 — 장면 자체의 퇴장 없음, 느린 드리프트만
+ * 자막: L1 57.5–60.5 → 0.3–3.3 / L2 60.5–64.0 → 3.3–6.8 (Main 핸드오프 10프레임 동안 유지되도록 7.1 까지)
  */
+
+const SCENE_LEN = 204;
 
 // ── s08 과 같은 170km 선 (월드 좌표 = 와이드 화면 좌표) ──
 const AX = 250;
@@ -24,16 +26,23 @@ const AY = 740;
 const BX = 1690;
 const BY = 506;
 const BUILT = 2.4 / 170; // 1.41 %
-const CX = AX + (BX - AX) * BUILT * 0.5;
-const CY = AY + (BY - AY) * BUILT * 0.5;
+const S0 = 0.008; // 앰버 구간이 해안 끝에서 살짝 안쪽에서 시작 → 줌인 시 점선 유령이 양 끝으로 이어짐
+const SX = AX + (BX - AX) * S0;
+const SY = AY + (BY - AY) * S0;
+const EX = AX + (BX - AX) * (S0 + BUILT);
+const EY = AY + (BY - AY) * (S0 + BUILT);
+const CX = (SX + EX) / 2;
+const CY = (SY + EY) / 2;
 const LINE_ANGLE = (Math.atan2(BY - AY, BX - AX) * 180) / Math.PI; // ≈ -9.2°
 
 // ── 타이밍 (프레임, 장면 기준) ──
+const LABEL_HOLD = 54; // '170km (계획)' 57.3–59.0s 유지
 const ZOOM_A = 18;
-const ZOOM_B = 84;
-const Z_MAX = 118;
-const X_A = 62; // 트렌치 교차 시작
-const X_B = 82;
+const ZOOM_B = 66;
+const Z_BR = 37; // 줌 끝 배율: 수로 폭 ≈ 79px = 측면 트렌치 높이(238px) ÷ 3
+const BR_A = ZOOM_B; // 브리지 (1→3 배)
+const BR_B = BR_A + 10;
+const BR_K = 3;
 const BAR_A = 100;
 const COUNT_A = 114;
 const COUNT_B = 146;
@@ -68,6 +77,56 @@ const ridgePath = (seed: number, y0: number, amp: number): string => {
   return pts.join(" ");
 };
 
+// 굽이진 해안선 (왼쪽 위는 육지가 화면 끝까지, 왼쪽 아래로 만이 열림 — 곧은 띠가 아니다)
+const COAST = "M-140,-260 C-40,160 240,360 172,690 C140,860 150,1010 380,1340";
+const COAST_FILL = `${COAST} L-2400,1340 L-2400,-260 Z`;
+
+/** 위에서 본 트렌치: 짙은 회색 수로 + 옹벽 테두리 + 옅은 가로 리브 + 2px 앰버 윤곽. look=0 이면 작은 앰버 조각 */
+const TopChannel: React.FC<{ x: number; y: number; len: number; w: number; angle: number; look: number; ribSp: number }> = ({
+  x,
+  y,
+  len,
+  w,
+  angle,
+  look,
+  ribSp,
+}) => {
+  const h = w / 2;
+  const sp = Math.max(3, w * 0.42);
+  const N = 30;
+  const top: string[] = [];
+  const bot: string[] = [];
+  for (let i = 0; i <= N; i++) {
+    const u = -0.05 + (1.1 * i) / N;
+    top.push(`${i === 0 ? "M" : "L"}${(u * len).toFixed(1)},${(-h - sp * (0.55 + 0.7 * random(`s9sp${i}`))).toFixed(1)}`);
+    bot.push(`L${(u * len).toFixed(1)},${(h + sp * (0.55 + 0.7 * random(`s9sb${i}`))).toFixed(1)}`);
+  }
+  const spoil = `${top.join(" ")} ${bot.reverse().join(" ")} Z`;
+  const wall = Math.min(6, w * 0.14);
+  const ribs: number[] = [];
+  const ribO = look * progress(ribSp, 22, 50, Easing.linear);
+  if (ribO > 0) for (let rx = ribSp; rx < len - 4; rx += ribSp) ribs.push(rx);
+  return (
+    <g transform={`translate(${x} ${y}) rotate(${angle})`}>
+      <path d={spoil} fill={SAND_LIGHT} opacity={0.2 + 0.22 * look} />
+      <rect x={-2} y={-h - 2} width={len + 4} height={w + 4} fill="#3a3226" opacity={0.55} />
+      <rect x={0} y={-h} width={len} height={w} fill={COLORS.amber} />
+      {look > 0 ? (
+        <g opacity={look}>
+          <rect x={0} y={-h} width={len} height={w} fill="#5d5a55" />
+          <rect x={0} y={-h} width={len} height={w * 0.3} fill="#4a4843" opacity={0.6} />
+          {ribs.map((rx) => (
+            <line key={rx} x1={rx} y1={-h + wall} x2={rx} y2={h - wall} stroke="#9a958c" strokeOpacity={0.3 * (ribO / Math.max(look, 0.001))} strokeWidth={2} />
+          ))}
+          <rect x={0} y={-h} width={len} height={wall} fill="#9a958c" />
+          <rect x={0} y={h - wall} width={len} height={wall} fill="#9a958c" />
+          <rect x={1} y={-h + 1} width={len - 2} height={w - 2} fill="none" stroke={COLORS.amber} strokeWidth={2} />
+        </g>
+      ) : null}
+    </g>
+  );
+};
+
 const Aerial: React.FC<{ frame: number }> = ({ frame }) => {
   const ridges = useMemo(
     () => Array.from({ length: 24 }, (_, i) => ({ d: ridgePath(i, -20 + i * 50, 12 + random(`s9r${i}`) * 20), o: 0.08 + random(`s9ro${i}`) * 0.1 })),
@@ -83,10 +142,11 @@ const Aerial: React.FC<{ frame: number }> = ({ frame }) => {
       })),
     [],
   );
-  // 카메라: C 가 화면의 (CxScr, CyScr) 로 이동하며 로그 배율로 줌, 선을 수평으로 회전
-  const zt = progress(frame, ZOOM_A, ZOOM_B, Easing.bezier(0.55, 0, 0.35, 1));
-  const Z = Math.exp(Math.log(Z_MAX) * zt);
-  const mt = progress(frame, ZOOM_A - 4, ZOOM_B - 14, Easing.inOut(Easing.cubic));
+  // 카메라: C 가 화면의 (CxScr, CyScr) 로 이동하며 로그 배율로 줌, 선을 수평으로 회전.
+  // 끝 기울기(≈2.25)를 브리지 1→3 배의 시작 속도와 맞춰 관성이 끊기지 않게 한다.
+  const zt = progress(frame, ZOOM_A, ZOOM_B, Easing.bezier(0.3, 0, 0.8, 0.55));
+  const Z = Math.exp(Math.log(Z_BR) * zt);
+  const mt = progress(frame, ZOOM_A - 4, ZOOM_B - 8, Easing.inOut(Easing.cubic));
   const sx = interpolate(mt, [0, 1], [CX, 960]);
   const sy = interpolate(mt, [0, 1], [CY, (T_TOP + T_BOT) / 2]);
   const rot = -LINE_ANGLE * mt;
@@ -100,16 +160,21 @@ const Aerial: React.FC<{ frame: number }> = ({ frame }) => {
   };
   const [ax, ay] = toScr(AX, AY);
   const [bx, by] = toScr(BX, BY);
-  const [ex, ey] = toScr(AX + (BX - AX) * BUILT, AY + (BY - AY) * BUILT);
+  const [s0x, s0y] = toScr(SX, SY);
+  const [ex, ey] = toScr(EX, EY);
   const worldT = `translate(${sx} ${sy}) rotate(${rot}) scale(${Z}) translate(${-CX} ${-CY})`;
+  const scrAngle = LINE_ANGLE + rot;
+  const chanLen = Math.hypot(ex - s0x, ey - s0y);
 
-  const bandW = 7 + 1.95 * Z; // 앰버 구간 화면 두께
+  const bandW = 7 + 1.95 * Z; // 앰버 구간 화면 두께 (Z_BR 에서 ≈79px)
+  const look = progress(bandW, 12, 30, Easing.inOut(Easing.quad)); // 앰버 조각 → 위에서 본 트렌치
+  const ribSp = (80 * Z) / Z_BR; // 월드에 붙은 리브 간격 (Z_BR 에서 80px)
   const ringO = 1 - progress(frame, ZOOM_A, ZOOM_A + 14);
-  const coast = `M${AX - 150},-200 C${AX - 60},${HEIGHT * 0.25} ${AX - 230},${HEIGHT * 0.65} ${AX - 110},${HEIGHT + 200}`;
-  const lx = (AX + BX) / 2;
-  const ly = (AY + BY) / 2;
-  const labelO = Math.min(progress(frame, 4, 16), 1 - progress(frame, ZOOM_A + 2, ZOOM_A + 14));
-  const dirt = progress(Z, 6, 40, Easing.linear); // 줌인할수록 공사 흙바닥이 드러남
+  // '170km (계획)': 줌 중에도 점선 유령 위(앰버 오른쪽)를 타고 따라가며 LABEL_HOLD 까지 유지
+  const mx = (ax + bx) / 2;
+  const lx = Math.max(Math.min(mx, 1400), ex + 250);
+  const ly = ay + ((lx - ax) * (by - ay)) / (bx - ax);
+  const labelO = Math.min(progress(frame, 0, 3, Easing.linear), 1 - progress(frame, LABEL_HOLD, LABEL_HOLD + 6, Easing.linear));
 
   return (
     <AbsoluteFill>
@@ -119,9 +184,10 @@ const Aerial: React.FC<{ frame: number }> = ({ frame }) => {
             <stop offset="0" stopColor="#d3b283" />
             <stop offset="1" stopColor="#b08c5e" />
           </linearGradient>
-          <linearGradient id="s9-sea" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0" stopColor="#3f6e7c" />
-            <stop offset="1" stopColor="#6c98a0" />
+          <linearGradient id="s9-sea" x1="-200" y1="1100" x2="220" y2="760" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#2f5c6a" />
+            <stop offset="0.7" stopColor="#4f8790" />
+            <stop offset="1" stopColor="#79aeaa" />
           </linearGradient>
           <radialGradient id="s9-patch">
             <stop offset="0" stopColor="#f1dcb2" stopOpacity={1} />
@@ -136,31 +202,21 @@ const Aerial: React.FC<{ frame: number }> = ({ frame }) => {
           {ridges.map((r, i) => (
             <path key={i} d={r.d} fill="none" stroke="#3a2812" strokeOpacity={r.o} strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
           ))}
-          <path d={`${coast} L-2000,${HEIGHT + 200} L-2000,-200 Z`} fill="url(#s9-sea)" />
-          <path d={coast} fill="none" stroke="#efe6d2" strokeOpacity={0.55} strokeWidth={2} vectorEffect="non-scaling-stroke" />
-          {/* 현장: 파헤친 흙띠와 공사 도로 (월드 단위로 아주 작음) */}
-          <g opacity={0.35 + 0.65 * dirt}>
-            <line
-              x1={AX - 3}
-              y1={AY + 0.5}
-              x2={AX + (BX - AX) * BUILT * 1.1}
-              y2={AY + (BY - AY) * BUILT * 1.1}
-              stroke={SAND_LIGHT}
-              strokeWidth={5.2}
-              strokeLinecap="butt"
-            />
-          </g>
+          {/* 바다 + 얕은 물 + 젖은 모래 + 물거품 */}
+          <path d={COAST_FILL} fill="url(#s9-sea)" />
+          <path d={COAST} fill="none" stroke="#8cc3bb" strokeOpacity={0.45} strokeWidth={26} />
+          <path d={COAST} fill="none" stroke="#a88a62" strokeOpacity={0.45} strokeWidth={10} transform="translate(7 0)" />
+          <path d={COAST} fill="none" stroke="#f4efe2" strokeOpacity={0.7} strokeWidth={2} vectorEffect="non-scaling-stroke" />
         </g>
-        {/* 170km 계획선 — 흐린 시안 점선 유령 */}
-        <line x1={ax} y1={ay} x2={bx} y2={by} stroke="#2a1c0c" strokeOpacity={0.35} strokeWidth={6} strokeLinecap="round" />
-        <line x1={ax} y1={ay} x2={bx} y2={by} stroke={COLORS.neon} strokeOpacity={0.8} strokeWidth={3} strokeDasharray="16 12" />
-        {/* 실제 지어진 약 2.4km — 앰버 */}
-        <line x1={ax} y1={ay} x2={ex} y2={ey} stroke="#3a2610" strokeWidth={bandW + 6} strokeLinecap="butt" strokeOpacity={0.75} />
-        <line x1={ax} y1={ay} x2={ex} y2={ey} stroke={COLORS.amber} strokeWidth={bandW} strokeLinecap="butt" />
+        {/* 170km 계획선 — 시안 점선 유령 (3px·60%, 1px 어두운 윤곽) */}
+        <line x1={ax} y1={ay} x2={bx} y2={by} stroke="#3a3226" strokeOpacity={0.9} strokeWidth={5} strokeDasharray="16 12" />
+        <line x1={ax} y1={ay} x2={bx} y2={by} stroke={COLORS.neon} strokeOpacity={0.6} strokeWidth={3} strokeDasharray="14 14" strokeDashoffset={-1} />
+        {/* 실제 지어진 약 2.4km — 앰버 조각 → 위에서 본 트렌치 */}
+        <TopChannel x={s0x} y={s0y} len={chanLen} w={bandW} angle={scrAngle} look={look} ribSp={ribSp} />
         {ringO > 0 ? (
           <g opacity={ringO * progress(frame, 2, 12)}>
-            <circle cx={CX} cy={CY} r={40} fill="none" stroke="#2a1c0c" strokeOpacity={0.6} strokeWidth={6} />
-            <circle cx={CX} cy={CY} r={40} fill="none" stroke={COLORS.amber} strokeWidth={3} strokeDasharray="7 6" />
+            <circle cx={sx} cy={sy} r={40} fill="none" stroke="#2a1c0c" strokeOpacity={0.6} strokeWidth={6} />
+            <circle cx={sx} cy={sy} r={40} fill="none" stroke={COLORS.amber} strokeWidth={3} strokeDasharray="7 6" />
           </g>
         ) : null}
       </svg>
@@ -170,7 +226,7 @@ const Aerial: React.FC<{ frame: number }> = ({ frame }) => {
             position: "absolute",
             left: lx,
             top: ly,
-            transform: `translate(-50%, -50%) rotate(${LINE_ANGLE}deg) translateY(-62px)`,
+            transform: `translate(-50%, -50%) rotate(${scrAngle}deg) translateY(-58px)`,
             opacity: labelO,
             display: "flex",
             alignItems: "baseline",
@@ -181,8 +237,8 @@ const Aerial: React.FC<{ frame: number }> = ({ frame }) => {
             whiteSpace: "nowrap",
           }}
         >
-          <span style={{ fontFamily: FONTS.num, fontWeight: 900, fontSize: 40, color: COLORS.neon, opacity: 0.85 }}>170km</span>
-          <span style={{ fontFamily: FONTS.body, fontWeight: 700, fontSize: 28, color: COLORS.sand }}>(계획)</span>
+          <span style={{ fontFamily: FONTS.body, fontWeight: 900, fontSize: 40, color: COLORS.neon, opacity: 0.9 }}>170km</span>
+          <span style={{ fontFamily: FONTS.body, fontWeight: 700, fontSize: 30, color: COLORS.sand }}>(계획)</span>
         </div>
       ) : null}
     </AbsoluteFill>
@@ -193,8 +249,10 @@ const Aerial: React.FC<{ frame: number }> = ({ frame }) => {
 // 2) 트렌치 근접: 긴 회색 콘크리트 기초, 낮은 옹벽과 배관. 위로 솟은 것은 없다.
 // ─────────────────────────────────────────────────────────────
 
-const X0 = -420;
-const X1 = WIDTH + 420;
+// 브리지에서 1/3 배로 들어오므로 트렌치 끝이 화면 안에 보이지 않게 넉넉히 길게
+const X0 = -1500;
+const X1 = WIDTH + 1500;
+const PIPE_REST = T_TOP - 4; // 관 더미가 놓이는 모래 선
 
 const roughEdge = (seed: string, y0: number, amp: number, step = 60): string => {
   const pts: string[] = [];
@@ -225,7 +283,7 @@ const TrenchStatic: React.FC = () => {
     for (let x = X1, i = 0; x >= X0; x -= 60, i++) nearPts.push(`L${x},${(T_BOT + 70 + (random(`s9ns${i}`) - 0.5) * 28).toFixed(1)}`);
     const nearSpoil = `M${X0},${T_BOT} L${X1},${T_BOT} ${nearPts.join(" ")} Z`;
     // 트렌치 밖에 눕혀 쌓아 둔 관 토막 (세로로 솟지 않음)
-    const pipeStack = Array.from({ length: 5 }, (_, i) => ({ x: 250 + (i % 2) * 18, y: 176 + i * 22, w: 250 + random(`s9pw${i}`) * 60 }));
+    const pipeStack = Array.from({ length: 4 }, (_, i) => ({ x: 250 + (i % 2) * 18, y: PIPE_REST - 20 * (4 - i), w: 250 + random(`s9pw${i}`) * 60 }));
     const stains = Array.from({ length: 9 }, (_, i) => ({
       x: X0 + 200 + random(`s9st${i}`) * (X1 - X0 - 400),
       y: T_FLOOR + 20 + random(`s9sy${i}`) * (T_NEAR - T_FLOOR - 40),
@@ -272,8 +330,8 @@ const TrenchStatic: React.FC = () => {
       </defs>
 
       {/* 모래 바닥 */}
-      <rect x={X0} y={-400} width={X1 - X0} height={HEIGHT + 800} fill={SAND} />
-      <rect x={X0} y={-400} width={X1 - X0} height={HEIGHT + 800} fill="url(#s9-speck)" />
+      <rect x={X0} y={-2400} width={X1 - X0} height={HEIGHT + 4800} fill={SAND} />
+      <rect x={X0} y={-2400} width={X1 - X0} height={HEIGHT + 4800} fill="url(#s9-speck)" />
       {/* 바퀴 자국 */}
       {[
         [X0, 118, X1, 70],
@@ -288,9 +346,10 @@ const TrenchStatic: React.FC = () => {
       <path d={geo.nearSpoil} fill={SAND_LIGHT} />
 
       {/* 눕혀 둔 관 토막 */}
+      {/* 접지 그림자 (6px, 25% 검정) */}
+      <ellipse cx={250 + 9 + 150} cy={PIPE_REST + 1} rx={186} ry={3} fill="#000" opacity={0.25} />
       {geo.pipeStack.map((p, i) => (
         <g key={i}>
-          <rect x={p.x} y={p.y + 4} width={p.w} height={20} rx={10} fill="#6b5234" opacity={0.35} />
           <rect x={p.x} y={p.y} width={p.w} height={20} rx={10} fill="url(#s9-stack)" />
           <ellipse cx={p.x + p.w} cy={p.y + 10} rx={5} ry={10} fill="#2e3238" />
         </g>
@@ -419,6 +478,19 @@ const PlanBar: React.FC<{ frame: number }> = ({ frame }) => {
   const labO = progress(frame, COUNT_A + 6, COUNT_A + 18);
   return (
     <div style={{ position: "absolute", left: 0, top: 0, width: WIDTH, height: HEIGHT, opacity: o }}>
+      {/* 막대 뒤 작은 받침 카드 (화면 전체 스크림 대신) */}
+      <div
+        style={{
+          position: "absolute",
+          left: BAR_X - 44,
+          top: BAR_Y - 122,
+          width: BAR_W + 88,
+          height: BAR_H + 186,
+          borderRadius: 14,
+          background: `rgba(${WARM_DARK},0.74)`,
+          boxShadow: "0 6px 0 rgba(0,0,0,0.12)",
+        }}
+      />
       {/* 윗줄: 카운터 / 100% */}
       <div
         style={{
@@ -482,7 +554,7 @@ const PlanBar: React.FC<{ frame: number }> = ({ frame }) => {
           whiteSpace: "nowrap",
         }}
       >
-        약 <span style={{ fontFamily: FONTS.num, fontWeight: 900 }}>2.4km</span>
+        약 2.4km
       </div>
       <div
         style={{
@@ -497,7 +569,7 @@ const PlanBar: React.FC<{ frame: number }> = ({ frame }) => {
           whiteSpace: "nowrap",
         }}
       >
-        <span style={{ fontFamily: FONTS.num, fontWeight: 900 }}>170km</span> (계획)
+        170km (계획)
       </div>
     </div>
   );
@@ -505,50 +577,41 @@ const PlanBar: React.FC<{ frame: number }> = ({ frame }) => {
 
 export const S09RealityTrench: React.FC = () => {
   const frame = useCurrentFrame();
-  const { durationInFrames } = useVideoConfig();
 
-  // 트렌치 교차: 줌의 관성을 이어 받아 살짝 더 커지며 들어와 느린 드리프트
-  const trenchO = progress(frame, X_A, X_B, Easing.inOut(Easing.quad));
-  const trenchScale =
-    interpolate(progress(frame, X_A, X_B + 20, Easing.out(Easing.cubic)), [0, 1], [0.72, 1]) + 0.035 * progress(frame, X_B + 20, durationInFrames, Easing.linear);
-  const aerialO = 1 - progress(frame, X_A + 6, X_B + 2, Easing.inOut(Easing.quad));
-
-  // whoosh push out
-  const pushOut = progress(frame, durationInFrames - 12, durationInFrames, Easing.in(Easing.cubic));
-  const camX = -pushOut * 110;
-
-  // 하드 컷 직후 노출 과다 한 번 (셔터)
-  const flash = interpolate(frame, [0, 6], [0.4, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.out(Easing.quad) });
-
-  // 하단 가독성 밴드: 와이드에선 자막만, 트렌치에선 막대까지 덮는다
-  const bandTall = progress(frame, X_A, BAR_A + 6);
+  // 브리지: 수로 중심(960, 437)으로 10프레임 동안 1→3 배 (줌 끝 속도를 이어 받아 감속) + 교차 페이드
+  const bt = progress(frame, BR_A, BR_B, Easing.out(Easing.quad));
+  const k = Math.exp(Math.log(BR_K) * bt);
+  const aerialO = 1 - progress(frame, BR_A + 3, BR_B, Easing.inOut(Easing.quad));
+  const trenchO = progress(frame, BR_A + 2, BR_B - 1, Easing.inOut(Easing.quad));
+  // 트렌치는 같은 카메라 배율을 공유: 브리지 시작에 1/3 (수로 폭 일치) → 끝에 1, 이후 느린 드리프트
+  const trenchScale = (k / BR_K) * (1 + 0.035 * progress(frame, BR_B, SCENE_LEN, Easing.linear));
+  const origin = `50% ${((T_TOP + T_BOT) / 2 / HEIGHT) * 100}%`;
 
   return (
-    <SceneFrame fadeIn={0} fadeOut={10} background="#17120c">
-      <AbsoluteFill style={{ transform: `translateX(${camX}px)` }}>
+    <SceneFrame fadeIn={0} fadeOut={0} background="#17120c">
+      <AbsoluteFill>
         {aerialO > 0 ? (
-          <AbsoluteFill style={{ opacity: aerialO }}>
+          <AbsoluteFill style={{ opacity: aerialO, transform: `scale(${k})`, transformOrigin: origin }}>
             <Aerial frame={frame} />
           </AbsoluteFill>
         ) : null}
         {trenchO > 0 ? (
-          <AbsoluteFill style={{ opacity: trenchO, transform: `scale(${trenchScale})`, transformOrigin: `50% ${((T_TOP + T_BOT) / 2 / HEIGHT) * 100}%` }}>
+          <AbsoluteFill style={{ opacity: trenchO, transform: `scale(${trenchScale})`, transformOrigin: origin }}>
             <TrenchStatic />
             <GhostWall frame={frame} />
           </AbsoluteFill>
         ) : null}
         {/* 한낮의 평평한 빛: 살짝 바랜 노출 */}
         <AbsoluteFill style={{ background: "linear-gradient(180deg, rgba(255,246,228,0.10) 0%, rgba(255,246,228,0) 45%)" }} />
-        <AbsoluteFill
+        {/* 자막용 하단 밴드: 맨 아래 180px, 55% 검정 */}
+        <div
           style={{
-            background: `linear-gradient(0deg, rgba(${WARM_DARK},0.9) 0%, rgba(${WARM_DARK},0.72) 16%, rgba(${WARM_DARK},0) 27%)`,
-            opacity: 1 - bandTall,
-          }}
-        />
-        <AbsoluteFill
-          style={{
-            background: `linear-gradient(0deg, rgba(${WARM_DARK},0.92) 0%, rgba(${WARM_DARK},0.84) 40%, rgba(${WARM_DARK},0) 52%)`,
-            opacity: bandTall,
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: 180,
+            background: "linear-gradient(0deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.55) 62%, rgba(0,0,0,0) 100%)",
           }}
         />
         {trenchO > 0 ? <Callout frame={frame} /> : null}
@@ -556,9 +619,8 @@ export const S09RealityTrench: React.FC = () => {
       </AbsoluteFill>
 
       <Caption lines={[{ text: "2025년 4월 항공사진 속 현장", from: 0.3, to: 3.3 }]} />
-      <Caption lines={[{ text: "170km 중 약 2.4km, 기초뿐", from: 3.3, to: 6.8 }]} />
+      <Caption lines={[{ text: "170km 중 약 2.4km, 기초뿐", from: 3.3, to: 7.1 }]} />
 
-      <AbsoluteFill style={{ background: "#fffaf0", opacity: flash, pointerEvents: "none" }} />
       <Grain opacity={0.14} />
       <Vignette strength={0.35} />
 

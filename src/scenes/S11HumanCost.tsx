@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { AbsoluteFill, Easing, interpolate, random, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Easing, interpolate, random, useCurrentFrame } from "remotion";
 import { COLORS, FONTS, SAFE, WIDTH } from "../theme";
 import { clamp01, progress, sec } from "../utils/anim";
 import { Desert, ExperimentChip, Grain, SceneFrame, SourceTag, Vignette } from "../components";
@@ -25,7 +25,16 @@ const TAG = "#b9a893"; // 재 톤의 출처 태그 색
 
 // ─────────────────────────── 능선 + 집 실루엣 ───────────────────────────
 
-const ridgeY = (x: number): number => 612 - 30 * Math.exp(-Math.pow((x - 960) / 560, 2)) + 5 * Math.sin(x / 150 + 0.7);
+const DUR = 288; // 스토리보드 장면 길이 (Main 이 +10 프레임 연장해도 이 값 기준)
+
+// 마을이 앉은 모래 능선 — 집 밑변이 y≈640 근처
+const ridgeY = (x: number): number => 664 - 26 * Math.exp(-Math.pow((x - 960) / 820, 2)) + 6 * Math.sin(x / 220 + 0.7);
+// 마을 앞 전경 모래언덕 (패럴랙스용, 더 빠르게 밀린다)
+const fgY = (x: number): number => 716 + 16 * Math.sin(x / 290 + 1.3) + 7 * Math.sin(x / 113 + 0.4) - 18 * Math.exp(-Math.pow((x - 1500) / 380, 2));
+
+const WIN_W = 15;
+const WIN_H = 19;
+const HALO_R = 42;
 
 type House = {
   x: number;
@@ -38,20 +47,24 @@ type House = {
 };
 
 const buildHouses = (): House[] => {
-  const n = 11;
-  const x0 = 560;
-  const x1 = 1360;
+  const n = 12;
+  const x0 = 290;
+  const x1 = 1630;
   const raw: Omit<House, "offAt">[] = [];
   for (let i = 0; i < n; i++) {
-    const x = x0 + ((x1 - x0) * i) / (n - 1) + (random(`hx${i}`) - 0.5) * 30;
-    const w = 46 + random(`hw${i}`) * 50;
-    const h = 34 + random(`hh${i}`) * 38;
-    const base = ridgeY(x) + 4;
-    const winCount = w > 78 ? 2 : 1;
-    const windows = Array.from({ length: winCount }, (_, k) => ({
-      x: winCount === 1 ? x - 4.5 : x - w / 2 + (w * (k + 1)) / 3 - 4.5,
-      y: base - h * 0.62,
-    }));
+    const x = x0 + ((x1 - x0) * i) / (n - 1) + (random(`hx${i}`) - 0.5) * 36;
+    const w = 80 + random(`hw${i}`) * 52;
+    const h = 60 + random(`hh${i}`) * 62;
+    const base = ridgeY(x) + 6;
+    const winCount = w > 112 ? 2 : 1;
+    const rows = h > 100 ? 2 : 1;
+    const windows: { x: number; y: number }[] = [];
+    for (let r = 0; r < rows; r++) {
+      const wy = rows === 1 ? base - h * 0.62 : base - h * (r === 0 ? 0.4 : 0.76);
+      for (let k = 0; k < winCount; k++) {
+        windows.push({ x: winCount === 1 ? x - WIN_W / 2 : x - w / 2 + (w * (k + 1)) / 3 - WIN_W / 2, y: wy });
+      }
+    }
     raw.push({ x, w, h, base, parapet: random(`hp${i}`) > 0.55, windows });
   }
   // 꺼지는 순서: 시드 셔플 (가장자리에서 가운데로 약간 치우치게)
@@ -102,37 +115,108 @@ const HouseRow: React.FC<{ houses: House[] }> = ({ houses }) => {
         </linearGradient>
       </defs>
       {/* 마을 뒤 따뜻한 지면 빛 — 창문이 꺼질수록 식는다 */}
-      <ellipse cx={960} cy={596} rx={560} ry={70} fill="url(#s11-ground)" opacity={0.25 + 0.75 * avgLit} />
+      <ellipse cx={960} cy={600} rx={900} ry={120} fill="url(#s11-ground)" opacity={0.2 + 0.8 * avgLit} />
       <path d={ridgePath} fill="url(#s11-ridge)" />
-      <path d={ridgePath} fill="none" stroke="#3a2d22" strokeWidth={1.5} opacity={0.8} />
+      <path d={ridgePath} fill="none" stroke="#3a2d22" strokeWidth={2} opacity={0.8} />
       {houses.map((h, i) => {
         const L = litLevel(frame, h.offAt);
         const left = h.x - h.w / 2;
         const top = h.base - h.h;
+        const ph = 11; // 파라펫 높이
         return (
           <g key={i}>
-            <rect x={left} y={top} width={h.w} height={h.h} fill="#241a13" fillOpacity={0.15 + 0.85 * L} />
+            <rect x={left} y={top} width={h.w} height={h.h} fill="#261b13" fillOpacity={0.3 + 0.7 * L} />
             {h.parapet ? (
-              <rect x={left + h.w * 0.12} y={top - 7} width={h.w * 0.3} height={7} fill="#241a13" fillOpacity={0.15 + 0.85 * L} />
+              <rect x={left + h.w * 0.12} y={top - ph} width={h.w * 0.3} height={ph} fill="#261b13" fillOpacity={0.3 + 0.7 * L} />
             ) : null}
             <path
               d={
                 h.parapet
-                  ? `M${left},${h.base} V${top} H${left + h.w * 0.12} V${top - 7} H${left + h.w * 0.42} V${top} H${left + h.w} V${h.base}`
+                  ? `M${left},${h.base} V${top} H${left + h.w * 0.12} V${top - ph} H${left + h.w * 0.42} V${top} H${left + h.w} V${h.base}`
                   : `M${left},${h.base} V${top} H${left + h.w} V${h.base}`
               }
               fill="none"
-              stroke={L > 0.02 ? "#6e5442" : "#5c4838"}
-              strokeWidth={1.6}
-              strokeOpacity={0.55 + 0.35 * (1 - L)}
+              stroke={L > 0.02 ? "#7a5d48" : "#6a5240"}
+              strokeWidth={2.4}
+              strokeOpacity={0.6 + 0.35 * (1 - L)}
             />
             {h.windows.map((w, k) => (
               <g key={k}>
-                <circle cx={w.x + 4.5} cy={w.y + 6} r={30} fill="url(#s11-win)" opacity={L} />
-                <rect x={w.x} y={w.y} width={9} height={12} fill={EMBER} opacity={L} />
-                <rect x={w.x} y={w.y} width={9} height={12} fill="none" stroke="#5c4838" strokeWidth={1} opacity={1 - L} />
+                <circle cx={w.x + WIN_W / 2} cy={w.y + WIN_H / 2} r={HALO_R} fill="url(#s11-win)" opacity={L} />
+                <rect x={w.x} y={w.y} width={WIN_W} height={WIN_H} fill={EMBER} opacity={L} />
+                <rect x={w.x} y={w.y} width={WIN_W} height={WIN_H} fill="#0d0a08" opacity={0.7 * (1 - L)} />
+                <rect x={w.x} y={w.y} width={WIN_W} height={WIN_H} fill="none" stroke="#6a5240" strokeWidth={1.5} opacity={1 - L} />
               </g>
             ))}
+          </g>
+        );
+      })}
+    </svg>
+  );
+};
+
+// ─────────────────────────── 전경 모래언덕 (패럴랙스) ───────────────────────────
+
+const ForeDune: React.FC = () => {
+  const path = useMemo(() => {
+    const pts: string[] = [];
+    for (let x = -80; x <= WIDTH + 80; x += 30) pts.push(`${x === -80 ? "M" : "L"}${x},${fgY(x).toFixed(1)}`);
+    return `${pts.join(" ")} L${WIDTH + 80},1160 L-80,1160 Z`;
+  }, []);
+  return (
+    <svg width={1920} height={1080} style={{ position: "absolute", inset: 0, overflow: "visible" }}>
+      <defs>
+        <linearGradient id="s11-fg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#15100c" />
+          <stop offset="30%" stopColor="#0c0907" />
+          <stop offset="100%" stopColor="#070504" />
+        </linearGradient>
+      </defs>
+      <path d={path} fill="url(#s11-fg)" />
+      <path d={path} fill="none" stroke="#4a382a" strokeWidth={2} opacity={0.55} />
+    </svg>
+  );
+};
+
+// ─────────────────────────── 마을에서 피어오르는 잉걸불 ───────────────────────────
+
+const Embers: React.FC<{ houses: House[] }> = ({ houses }) => {
+  const frame = useCurrentFrame();
+  const embers = useMemo(
+    () =>
+      Array.from({ length: 16 }, (_, i) => {
+        const h = houses[Math.floor(random(`eh${i}`) * houses.length)];
+        return {
+          x: h.x + (random(`ex${i}`) - 0.5) * h.w * 0.8,
+          y: h.base - h.h - 6,
+          period: 150 + random(`ep${i}`) * 110,
+          phase: random(`ef${i}`),
+          rise: 300 + random(`er${i}`) * 200,
+          sway: 12 + random(`es${i}`) * 26,
+          r: 2 + random(`ez${i}`) * 2.2,
+          ph: random(`eo${i}`) * Math.PI * 2,
+        };
+      }),
+    [houses],
+  );
+  return (
+    <svg width={1920} height={1080} style={{ position: "absolute", inset: 0 }}>
+      <defs>
+        <radialGradient id="s11-ember">
+          <stop offset="0%" stopColor={EMBER} stopOpacity={0.7} />
+          <stop offset="100%" stopColor={EMBER} stopOpacity={0} />
+        </radialGradient>
+      </defs>
+      {embers.map((e, i) => {
+        const age = (frame / e.period + e.phase) % 1;
+        const y = e.y - age * e.rise;
+        const x = e.x + Math.sin(age * Math.PI * 2 + e.ph) * e.sway + age * 30;
+        const o = Math.min(1, age / 0.12) * Math.pow(1 - age, 1.4) * (0.75 + 0.25 * Math.sin(frame * 0.4 + e.ph));
+        const r = e.r * (1 - 0.5 * age);
+        return (
+          <g key={i} opacity={o}>
+            <circle cx={x} cy={y} r={r * 5} fill="url(#s11-ember)" />
+            <circle cx={x} cy={y} r={r} fill="#ffc98a" />
           </g>
         );
       })}
@@ -242,16 +326,16 @@ const EventLine: React.FC = () => {
               fontWeight={700}
               fontSize={32}
               fill={COLORS.ink}
-              style={{ letterSpacing: -0.3 }}
+              style={{ letterSpacing: -0.3, whiteSpace: "pre" }}
             >
-              <tspan fontFamily={FONTS.num} fontSize={27} fill={EMBER} opacity={dateO}>
+              <tspan fill={EMBER} opacity={dateO}>
                 {n.date}
               </tspan>
               <tspan opacity={labelO}>
                 {"  "}
                 {n.label.map((s, k) =>
                   s.num ? (
-                    <tspan key={k} fontFamily={FONTS.num} fontSize={27} fill={EMBER}>
+                    <tspan key={k} fill={EMBER}>
                       {s.t}
                     </tspan>
                   ) : (
@@ -272,9 +356,9 @@ const EventLine: React.FC = () => {
 type CapLine = { segs: { t: string; em?: boolean }[]; from: number; to: number; speed: number };
 
 const CAPS: CapLine[] = [
-  { segs: [{ t: "후와이타트족 " }, { t: "약 2만 명", em: true }, { t: ", 퇴거 명령" }], from: T.l1, to: T.l2, speed: 2.4 },
-  { segs: [{ t: "퇴거를 거부한 " }, { t: "3명", em: true }, { t: ", 사형 선고" }], from: T.l2, to: T.l3, speed: 2.4 },
-  { segs: [{ t: "현장 노동자 " }, { t: "'하루 16시간'", em: true }], from: T.l3, to: 288, speed: 2.4 },
+  { segs: [{ t: "후와이타트족 " }, { t: "약 2만 명", em: true }, { t: ", 퇴거 명령" }], from: T.l1, to: T.l2, speed: 1.5 },
+  { segs: [{ t: "퇴거를 거부한 " }, { t: "3명", em: true }, { t: ", 사형 선고" }], from: T.l2, to: T.l3, speed: 1.5 },
+  { segs: [{ t: "현장 노동자 " }, { t: "‘하루 16시간’", em: true }], from: T.l3, to: DUR + 20, speed: 1.5 },
 ];
 
 const TypeCaption: React.FC<{ line: CapLine; last: boolean }> = ({ line, last }) => {
@@ -336,24 +420,32 @@ const TypeCaption: React.FC<{ line: CapLine; last: boolean }> = ({ line, last })
 
 export const S11HumanCost: React.FC = () => {
   const frame = useCurrentFrame();
-  const { durationInFrames } = useVideoConfig();
   const houses = useMemo(buildHouses, []);
 
-  // 느린 카메라 밀기
-  const push = interpolate(frame, [0, durationInFrames], [1.0, 1.045], { easing: Easing.inOut(Easing.quad) });
-  const skyFade = progress(frame, 0, 40);
-  const rule = progress(frame, 8, 30, Easing.out(Easing.cubic)) * (1 - progress(frame, durationInFrames - 8, durationInFrames));
+  // 느린 카메라 밀기 + 패럴랙스 (하늘 < 마을 < 전경 언덕). 끝 프레임 이후(핸드오프)에도 계속 흐른다.
+  const k = interpolate(frame, [0, DUR], [0, 1], { easing: Easing.inOut(Easing.quad), extrapolateRight: "clamp" }) * 0.7 + (0.3 * frame) / DUR;
+  const pushSky = 1 + 0.025 * k;
+  const pushVillage = 1 + 0.06 * k;
+  const pushFore = 1 + 0.1 * k;
+  const skyFade = 0.6 + 0.4 * progress(frame, 0, 40);
+  const rule = progress(frame, 0, 22, Easing.out(Easing.cubic));
 
   return (
-    <SceneFrame background="#000" fadeIn={12} fadeOut={16}>
+    <SceneFrame background={ASH} fadeIn={12} fadeOut={8}>
       <AbsoluteFill style={{ background: ASH }} />
-      <AbsoluteFill style={{ transform: `scale(${push})`, transformOrigin: "50% 58%" }}>
-        {/* 흐린 밤 사막: 재 색으로 탈색 */}
-        <AbsoluteFill style={{ opacity: 0.5 * skyFade, filter: "sepia(0.85) saturate(0.35) brightness(0.55) contrast(1.05)" }}>
-          <Desert time="night" horizon={620} sunX={1.4} sunY={200} duneLayers={2} />
+      {/* 흐린 밤 사막: 재 색으로 탈색 */}
+      <AbsoluteFill style={{ transform: `scale(${pushSky})`, transformOrigin: "50% 58%" }}>
+        <AbsoluteFill style={{ opacity: 0.6 * skyFade, filter: "sepia(0.85) saturate(0.35) brightness(0.6) contrast(1.05)" }}>
+          <Desert time="night" horizon={660} sunX={1.4} sunY={200} duneLayers={2} />
         </AbsoluteFill>
-        <AbsoluteFill style={{ background: `linear-gradient(180deg, ${ASH}cc 0%, ${ASH}55 45%, ${ASH}00 60%)` }} />
+        <AbsoluteFill style={{ background: `linear-gradient(180deg, ${ASH}aa 0%, ${ASH}44 45%, ${ASH}00 60%)` }} />
+      </AbsoluteFill>
+      <AbsoluteFill style={{ transform: `scale(${pushVillage})`, transformOrigin: "50% 60%" }}>
         <HouseRow houses={houses} />
+        <Embers houses={houses} />
+      </AbsoluteFill>
+      <AbsoluteFill style={{ transform: `translateX(${-14 * k}px) scale(${pushFore})`, transformOrigin: "50% 60%" }}>
+        <ForeDune />
         <Motes />
       </AbsoluteFill>
 

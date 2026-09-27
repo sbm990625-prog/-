@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { AbsoluteFill, Easing, interpolate, interpolateColors, random, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Easing, interpolate, interpolateColors, random, useCurrentFrame } from "remotion";
 import { COLORS, FONTS, SAFE, glow } from "../theme";
 import { clamp01, fmt, progress } from "../utils/anim";
 import {
@@ -18,7 +18,8 @@ import {
 /**
  * s05-train — 실험 2 · 20분 열차. (26.4s → 36.0s, 288 frames)
  * 0.0–6.2s  : 같은 170km 두 레인 — 시안 '약속'(20:00, 평균 510 km/h) vs 강철색 KTX 305 km/h (33:24 → '33분 (계산)')
- * 6.2–9.6s  : 같은 선로에 역 86개가 왼→오로 팝, 열차가 역마다 섰다 감. 모서리 시계는 정차 시간만 0→42.5분,
+ * 4.9–5.5s  : 두 레인 선로가 한 줄의 170km 선로로 모핑(빈 화면 없이 이어짐)
+ * 5.5–9.6s  : 같은 선로에 역 86개가 왼→오로 팝, 열차가 역마다 섰다 감(자막 L3 와 함께 출발). 모서리 시계는 정차 시간만 0→42.5분,
  *             점선 시안 '20분' 선을 넘는 순간 앰버.
  * 자막(장면 기준 초): L1 0.2–3.0 / L2 3.0–6.2 / L3 6.2–9.6, 헤더 칩은 장면 내내.
  */
@@ -30,17 +31,20 @@ const PROMISE_MIN = 20;
 const RACE_DUR = 104; // KTX 도착까지
 const CYAN_ARRIVE = RACE_START + (RACE_DUR * PROMISE_MIN) / KTX_MIN; // ≈ 76
 const KTX_ARRIVE = RACE_START + RACE_DUR; // 118
-const PHASE2 = 186; // 6.2s
-const TICK_START = PHASE2 + 6;
+const MORPH0 = 146; // ≈4.9s: 결과 정지 ~1초 뒤 레이스 선로 → 역 선로 모핑 시작
+const MORPH1 = 166; // 모핑 완료 (레이스 언마운트)
+const PHASE2 = 186; // 6.2s — 자막 L3
+const TICK_START = MORPH1 - 2;
 const TICK_STEP = 0.38; // 86개 ≈ 33프레임
-const TRAIN_START = PHASE2 + 14;
+const TRAIN_START = PHASE2;
 const SLOW_STOPS = 3; // 처음 3개 역은 천천히 (섰다 가는 게 보이도록)
 const SLOW_PER = 7;
-const FAST_DUR = 44;
+const FAST_DUR = 54;
 const TRAIN_END = TRAIN_START + SLOW_STOPS * SLOW_PER + FAST_DUR;
 const STATIONS = 86;
 const SEGS = STATIONS - 1; // 85회 정차
 const DWELL = 0.45;
+const SCENE_LEN = 288;
 
 // ── 레이아웃 ───────────────────────────────────────────────
 const RX1 = 470;
@@ -182,34 +186,65 @@ const Race: React.FC<{ frame: number }> = ({ frame }) => {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
-  const appear = progress(frame, 2, 22);
-  const trackDraw = progress(frame, 0, 18, Easing.inOut(Easing.cubic));
+  const appear = progress(frame, -6, 14);
+  const trackDraw = progress(frame, -8, 14, Easing.inOut(Easing.cubic));
+  // 모핑: 두 레인 선로 → 한 줄 역 선로. 라벨·캡슐·시계는 먼저 빠진다.
+  const m = progress(frame, MORPH0, MORPH1, Easing.inOut(Easing.cubic));
+  const fadeOut = 1 - progress(frame, MORPH0, MORPH0 + 10);
+  const mx1 = interpolate(m, [0, 1], [RX1, SX1]);
+  const mx2 = interpolate(m, [0, 1], [RX1 + (RX2 - RX1) * trackDraw, SX2]);
+  const dimY = interpolate(m, [0, 1], [LANE_Y[1] + 110, SY + 66]);
+  const dimX1 = interpolate(m, [0, 1], [RX1, SX1]);
+  const dimX2 = interpolate(m, [0, 1], [RX2, SX2]);
 
   const lanes = [
     { key: "promise", minutes: PROMISE_MIN, color: COLORS.neon, name: "약속", speed: 510, arrive: CYAN_ARRIVE },
     { key: "ktx", minutes: KTX_MIN, color: COLORS.steel, name: "KTX", speed: 305, arrive: KTX_ARRIVE },
   ];
   const marker20 = noseX(PROMISE_MIN / KTX_MIN);
-  const markerP = progress(frame, CYAN_ARRIVE, CYAN_ARRIVE + 12);
+  const markerP = progress(frame, CYAN_ARRIVE, CYAN_ARRIVE + 12) * fadeOut;
   const ktxLabelP = progress(frame, KTX_ARRIVE + 2, KTX_ARRIVE + 16);
 
   return (
     <AbsoluteFill>
       {/* 출발선 · 도착선 */}
       <svg width={1920} height={1080} style={{ position: "absolute", inset: 0, opacity: appear }}>
-        <line x1={RX1} y1={LANE_Y[0] - 70} x2={RX1} y2={LANE_Y[1] + 70} stroke={COLORS.muted} strokeOpacity={0.5} strokeWidth={2} strokeDasharray="6 8" />
-        <line x1={RX2} y1={LANE_Y[0] - 70} x2={RX2} y2={LANE_Y[1] + 70} stroke={COLORS.ink} strokeOpacity={0.55} strokeWidth={2} strokeDasharray="6 8" />
-        {/* 170km 치수선 */}
-        <g opacity={progress(frame, 10, 28)}>
-          <line x1={RX1} y1={LANE_Y[1] + 110} x2={RX2} y2={LANE_Y[1] + 110} stroke={COLORS.muted} strokeOpacity={0.7} strokeWidth={2} />
-          <line x1={RX1} y1={LANE_Y[1] + 98} x2={RX1} y2={LANE_Y[1] + 122} stroke={COLORS.muted} strokeWidth={2} />
-          <line x1={RX2} y1={LANE_Y[1] + 98} x2={RX2} y2={LANE_Y[1] + 122} stroke={COLORS.muted} strokeWidth={2} />
-          <rect x={(RX1 + RX2) / 2 - 90} y={LANE_Y[1] + 90} width={180} height={40} fill={COLORS.bg} />
-          <text x={(RX1 + RX2) / 2} y={LANE_Y[1] + 123} textAnchor="middle" fill={COLORS.ink} fontFamily={FONTS.num} fontWeight={700} fontSize={32}>
+        <g opacity={fadeOut}>
+          <line x1={RX1} y1={LANE_Y[0] - 70} x2={RX1} y2={LANE_Y[1] + 70} stroke={COLORS.muted} strokeOpacity={0.5} strokeWidth={2} strokeDasharray="6 8" />
+          <line x1={RX2} y1={LANE_Y[0] - 70} x2={RX2} y2={LANE_Y[1] + 70} stroke={COLORS.ink} strokeOpacity={0.55} strokeWidth={2} strokeDasharray="6 8" />
+        </g>
+        {/* 170km 치수선 — 모핑 때 역 선로의 치수선 자리로 늘어난다 */}
+        <g opacity={progress(frame, 0, 18)}>
+          <line x1={dimX1} y1={dimY} x2={dimX2} y2={dimY} stroke={COLORS.muted} strokeOpacity={0.7} strokeWidth={2} />
+          <line x1={dimX1} y1={dimY - 12} x2={dimX1} y2={dimY + 12} stroke={COLORS.muted} strokeWidth={2} />
+          <line x1={dimX2} y1={dimY - 12} x2={dimX2} y2={dimY + 12} stroke={COLORS.muted} strokeWidth={2} />
+          <rect x={960 - 90} y={dimY - 20} width={180} height={40} fill={COLORS.bg} />
+          <text x={960} y={dimY + 13} textAnchor="middle" fill={COLORS.ink} fontFamily={FONTS.num} fontWeight={700} fontSize={32}>
             170km
           </text>
         </g>
       </svg>
+
+      {/* 선로 (두 레인 → 한 줄로 모핑) */}
+      {LANE_Y.map((ly, i) => {
+        const laneIn = progress(frame, -6 + i * 4, 14 + i * 4);
+        const y = interpolate(m, [0, 1], [ly, SY]);
+        return (
+          <div
+            key={`track-${i}`}
+            style={{
+              position: "absolute",
+              left: mx1,
+              top: y - 2.5,
+              width: Math.max(0, mx2 - mx1),
+              height: 5,
+              background: COLORS.dim,
+              opacity: laneIn * interpolate(m, [0, 1], [0.8, 1]),
+              borderRadius: 2.5,
+            }}
+          />
+        );
+      })}
 
       {lanes.map((l, i) => {
         const y = LANE_Y[i];
@@ -218,8 +253,9 @@ const Race: React.FC<{ frame: number }> = ({ frame }) => {
         const moving = frame > RACE_START && p < 1;
         const done = p >= 1;
         const arriveP = progress(frame, l.arrive, l.arrive + 14, Easing.out(Easing.back(2)));
-        const laneIn = progress(frame, 2 + i * 5, 22 + i * 5);
-        const speed = Math.round(progress(frame, RACE_START, RACE_START + 30) * l.speed);
+        const laneIn = progress(frame, -6 + i * 4, 14 + i * 4) * fadeOut;
+        // 평균/최고 속도는 처음부터 고정값 (가속 곡선처럼 보이지 않게)
+        const speed = Math.round(progress(frame, 0, 12, Easing.out(Easing.cubic)) * l.speed);
         const clock = mmss(Math.min(simMin, l.minutes));
         const isCyan = i === 0;
         return (
@@ -237,24 +273,15 @@ const Race: React.FC<{ frame: number }> = ({ frame }) => {
               >
                 {l.name}
               </div>
-              <div style={{ fontFamily: FONTS.num, fontWeight: 700, fontSize: 34, color: COLORS.ink, marginTop: 6, whiteSpace: "nowrap" }}>
+              <div style={{ fontFamily: FONTS.num, fontWeight: 700, fontSize: 36, color: COLORS.ink, marginTop: 6, whiteSpace: "nowrap" }}>
+                <span style={{ fontFamily: FONTS.body, fontWeight: 700, fontSize: 28, color: COLORS.muted, marginRight: 10 }}>
+                  {isCyan ? "평균" : "최고"}
+                </span>
                 {speed}
-                <span style={{ fontFamily: FONTS.num, fontSize: 22, color: l.color, marginLeft: 8 }}>km/h</span>
+                <span style={{ fontFamily: FONTS.num, fontSize: 28, color: l.color, marginLeft: 8 }}>km/h</span>
               </div>
             </div>
-            {/* 선로 */}
-            <div
-              style={{
-                position: "absolute",
-                left: RX1,
-                top: y - 2,
-                width: (RX2 - RX1) * trackDraw,
-                height: 4,
-                background: COLORS.dim,
-                opacity: 0.8,
-                borderRadius: 2,
-              }}
-            />
+            {/* 지나온 선로 (빛) */}
             <div
               style={{
                 position: "absolute",
@@ -267,7 +294,7 @@ const Race: React.FC<{ frame: number }> = ({ frame }) => {
                 borderRadius: 2,
               }}
             />
-            <SpeedLines x={tx} y={y} color={l.color} frame={frame} amount={moving ? (isCyan ? 1 : 0.45) : 0} seed={l.key} />
+            <SpeedLines x={tx} y={y} color={l.color} frame={frame} amount={moving ? (isCyan ? 1 : 0.45) : done ? (isCyan ? 0.4 : 0.22) : 0} seed={l.key} />
             <Capsule x={tx} y={y} w={CAP_W} color={l.color} strength={isCyan ? 1 : 0.45} />
             {/* 도착 펄스 */}
             {done && frame < l.arrive + 24 ? (
@@ -313,7 +340,7 @@ const Race: React.FC<{ frame: number }> = ({ frame }) => {
                   top: y + 34,
                   fontFamily: FONTS.body,
                   fontWeight: 700,
-                  fontSize: 26,
+                  fontSize: 30,
                   color: l.color,
                   opacity: progress(frame, l.arrive + 4, l.arrive + 16),
                   whiteSpace: "nowrap",
@@ -356,9 +383,6 @@ const Race: React.FC<{ frame: number }> = ({ frame }) => {
           strokeDasharray="4 7"
           strokeDashoffset={-frame * 0.6}
         />
-        <text x={marker20 - 12} y={LANE_Y[1] - 36} textAnchor="end" fill={COLORS.neon} fillOpacity={0.85} fontFamily={FONTS.num} fontWeight={700} fontSize={22}>
-          20:00
-        </text>
       </svg>
     </AbsoluteFill>
   );
@@ -374,10 +398,8 @@ const Stations: React.FC<{ frame: number; crossFrame: number }> = ({ frame, cros
   const shown = Math.floor(stopMin * 2 + 1e-6) / 2;
   const amberP = progress(frame, crossFrame, crossFrame + 3);
   const accent = interpolateColors(amberP, [0, 1], [COLORS.neon, COLORS.amber]);
-  const popped = Math.max(0, Math.min(STATIONS, Math.floor((frame - TICK_START) / TICK_STEP) + 1));
-  const lineDraw = progress(frame, PHASE2, PHASE2 + 14, Easing.inOut(Easing.cubic));
-  const panelP = progress(frame, PHASE2 + 8, PHASE2 + 24);
-  const labelP = progress(frame, PHASE2 + 4, PHASE2 + 18);
+  const baseOn = frame >= MORPH1 ? 1 : 0; // 레이스 선로가 모핑으로 이 자리에 도착한 뒤 넘겨받는다
+  const panelP = progress(frame, MORPH1 + 2, MORPH1 + 18);
 
   // 게이지 (0–45분)
   const GX = 1180;
@@ -390,28 +412,6 @@ const Stations: React.FC<{ frame: number; crossFrame: number }> = ({ frame, cros
 
   return (
     <AbsoluteFill>
-      {/* 왼쪽 위: 역 개수 */}
-      <div style={{ position: "absolute", left: SAFE.x + 20, top: 250, opacity: labelP, transform: `translateY(${(1 - labelP) * 16}px)` }}>
-        <div style={{ fontFamily: FONTS.body, fontWeight: 700, fontSize: 30, color: COLORS.muted }}>2023 논문 · 필요한 역</div>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 4 }}>
-          <span style={{ fontFamily: FONTS.body, fontWeight: 900, fontSize: 52, color: COLORS.ink }}>역</span>
-          <span
-            style={{
-              fontFamily: FONTS.num,
-              fontWeight: 800,
-              fontSize: 96,
-              lineHeight: 1,
-              color: COLORS.neon,
-              textShadow: glow(COLORS.neon, 0.3),
-              fontVariantNumeric: "tabular-nums",
-            }}
-          >
-            {popped}
-          </span>
-          <span style={{ fontFamily: FONTS.body, fontWeight: 900, fontSize: 52, color: COLORS.ink }}>개</span>
-        </div>
-      </div>
-
       {/* 오른쪽 위: 정차 시간 시계 */}
       <div style={{ position: "absolute", left: GX, top: 238, width: GW, opacity: panelP, transform: `translateY(${(1 - panelP) * 16}px)` }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
@@ -442,14 +442,8 @@ const Stations: React.FC<{ frame: number; crossFrame: number }> = ({ frame, cros
         ) : null}
         {/* 20분 약속선 (점선 시안) */}
         <line x1={g20} y1={GY - 22} x2={g20} y2={GY + 36} stroke={COLORS.neon} strokeWidth={3} strokeDasharray="6 6" />
-        <text x={g20} y={GY + 66} textAnchor="middle" fill={COLORS.neon} fontFamily={FONTS.body} fontWeight={700} fontSize={26}>
+        <text x={g20} y={GY + 66} textAnchor="middle" fill={COLORS.neon} fontFamily={FONTS.body} fontWeight={700} fontSize={30}>
           20분 (약속)
-        </text>
-        <text x={GX} y={GY + 66} textAnchor="start" fill={COLORS.muted} fontFamily={FONTS.num} fontSize={20}>
-          0
-        </text>
-        <text x={GX + GW} y={GY + 66} textAnchor="end" fill={COLORS.muted} fontFamily={FONTS.num} fontSize={20}>
-          45
         </text>
       </svg>
 
@@ -460,7 +454,7 @@ const Stations: React.FC<{ frame: number; crossFrame: number }> = ({ frame, cros
             <feGaussianBlur stdDeviation={6} />
           </filter>
         </defs>
-        <line x1={SX1} y1={SY} x2={SX1 + (SX2 - SX1) * lineDraw} y2={SY} stroke={COLORS.dim} strokeWidth={5} strokeLinecap="round" />
+        <line x1={SX1} y1={SY} x2={SX2} y2={SY} stroke={COLORS.dim} strokeWidth={5} strokeLinecap="round" opacity={baseOn} />
         <line x1={SX1} y1={SY} x2={tx} y2={SY} stroke={COLORS.neon} strokeWidth={5} strokeLinecap="round" opacity={frame > TRAIN_START ? 0.9 : 0} />
         {ticks.map((x, i) => {
           const t0 = TICK_START + i * TICK_STEP;
@@ -487,13 +481,13 @@ const Stations: React.FC<{ frame: number; crossFrame: number }> = ({ frame, cros
           );
         })}
         {/* 열차 */}
-        <g opacity={progress(frame, PHASE2 + 8, PHASE2 + 16)}>
+        <g opacity={progress(frame, MORPH1 - 4, MORPH1 + 6)}>
           <rect x={tx - 40} y={SY - 14} width={70} height={28} rx={14} fill={COLORS.neon} filter="url(#s05-train-glow)" opacity={0.85} />
           <rect x={tx - 34} y={SY - 10} width={58} height={20} rx={10} fill="#ffffff" />
         </g>
         {/* 170km 치수 */}
-        <g opacity={progress(frame, PHASE2 + 10, PHASE2 + 26)}>
-          <line x1={SX1} y1={SY + 66} x2={SX2} y2={SY + 66} stroke={COLORS.muted} strokeOpacity={0.6} strokeWidth={2} />
+        <g opacity={baseOn}>
+          <line x1={SX1} y1={SY + 66} x2={SX2} y2={SY + 66} stroke={COLORS.muted} strokeOpacity={0.7} strokeWidth={2} />
           <line x1={SX1} y1={SY + 54} x2={SX1} y2={SY + 78} stroke={COLORS.muted} strokeWidth={2} />
           <line x1={SX2} y1={SY + 54} x2={SX2} y2={SY + 78} stroke={COLORS.muted} strokeWidth={2} />
           <rect x={(SX1 + SX2) / 2 - 90} y={SY + 46} width={180} height={40} fill={COLORS.bg} />
@@ -526,7 +520,6 @@ const Stations: React.FC<{ frame: number; crossFrame: number }> = ({ frame, cros
 
 export const S05Train: React.FC = () => {
   const frame = useCurrentFrame();
-  const { durationInFrames } = useVideoConfig();
 
   // 정차 시계가 20분을 넘는 프레임 (정적 계산)
   const crossFrame = useMemo(() => {
@@ -536,32 +529,20 @@ export const S05Train: React.FC = () => {
     return TRAIN_END;
   }, []);
 
-  const raceOut = 1 - progress(frame, PHASE2 - 12, PHASE2 + 2, Easing.in(Easing.cubic));
-  const stationIn = progress(frame, PHASE2 - 2, PHASE2 + 14);
-
-  // whoosh push: 들어올 때 오른쪽에서 밀려 들어오고, 끝에서 왼쪽으로 밀려 나감
+  // whoosh push: 들어올 때 오른쪽에서 밀려 들어온다 (나가는 push 는 Main 이 담당)
   const pushIn = 1 - progress(frame, 0, 12, Easing.out(Easing.cubic));
-  const pushOut = progress(frame, durationInFrames - 12, durationInFrames, Easing.in(Easing.cubic));
-  const camX = pushIn * 90 - pushOut * 110;
-  const drift = 1 + 0.01 * (frame / durationInFrames);
+  const camX = pushIn * 90;
+  const drift = 1 + 0.01 * (frame / SCENE_LEN);
 
   return (
-    <SceneFrame fadeIn={8} fadeOut={10}>
+    <SceneFrame fadeIn={0} fadeOut={0}>
       <MeasureGrid />
       <GlowBlob x={960} y={720} r={760} color={COLORS.neon2} opacity={0.12} />
       <PerspectiveGrid horizon={770} opacity={0.5} speed={2.2} />
 
       <AbsoluteFill style={{ transform: `translateX(${camX}px) scale(${drift})`, transformOrigin: "50% 45%" }}>
-        {raceOut > 0 ? (
-          <AbsoluteFill style={{ opacity: raceOut, transform: `translateY(${(1 - raceOut) * -24}px)` }}>
-            <Race frame={frame} />
-          </AbsoluteFill>
-        ) : null}
-        {stationIn > 0 ? (
-          <AbsoluteFill style={{ opacity: stationIn, transform: `translateY(${(1 - stationIn) * 24}px)` }}>
-            <Stations frame={frame} crossFrame={crossFrame} />
-          </AbsoluteFill>
-        ) : null}
+        {frame < MORPH1 ? <Race frame={frame} /> : null}
+        {frame >= MORPH0 ? <Stations frame={frame} crossFrame={crossFrame} /> : null}
       </AbsoluteFill>
 
       {/* 자막 가독성 밴드 */}
@@ -579,13 +560,13 @@ export const S05Train: React.FC = () => {
       <Grain />
       <Vignette strength={0.6} />
       <DreamLetterBox />
-      <ExperimentChip index="실험 2" title="끝에서 끝까지 20분" start={2} />
+      <ExperimentChip index="실험 2" title="끝에서 끝까지 20분" start={-3} end={SCENE_LEN + 60} />
       <DisclaimerTag />
 
-      <SourceTag label="계산" text="170km ÷ 20분 = 시속 510km" position="bottomLeft" start={10} end={PHASE2 + 2} />
-      <SourceTag label="계산" text="KTX 최고 305km/h · 무정차 가정" position="bottomRight" start={90} end={PHASE2 + 2} />
-      <SourceTag text="역 86개: npj Urban Sustainability · 2023.06" position="bottomLeft" start={PHASE2 + 4} />
-      <SourceTag label="계산" text="역당 30초 정차 가정" position="bottomRight" start={PHASE2 + 10} />
+      <SourceTag label="계산" text="170km ÷ 20분 = 시속 510km" position="bottomLeft" start={0} end={MORPH1} />
+      <SourceTag label="계산" text="KTX 최고 305km/h · 무정차 가정" position="bottomRight" start={90} end={MORPH1} />
+      <SourceTag text="역 86개: npj Urban Sustainability · 2023.06" position="bottomLeft" start={MORPH1 + 2} />
+      <SourceTag label="계산" text="역당 30초 정차 가정" position="bottomRight" start={MORPH1 + 8} />
     </SceneFrame>
   );
 };

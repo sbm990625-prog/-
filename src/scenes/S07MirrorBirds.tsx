@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { AbsoluteFill, Easing, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Easing, interpolate, useCurrentFrame } from "remotion";
 import { COLORS, FONTS, HEIGHT, WIDTH } from "../theme";
 import { progress, sec } from "../utils/anim";
 import { Caption, DisclaimerTag, DreamLetterBox, ExperimentChip, Grain, SceneFrame, SourceTag, Vignette } from "../components";
@@ -13,14 +13,14 @@ import { Caption, DisclaimerTag, DreamLetterBox, ExperimentChip, Grain, SceneFra
  *  B (3.0–6.4s)  V자 철새 편대가 오른쪽 위에서 반사된 하늘로 날아든다. 새와 거울 속 새(반사상)가
  *                서로 가까워지다 접촉 직전 프레임이 멈추고, 접촉 지점에 앰버 경고 링이 맥동한다.
  *                충돌은 보여주지 않는다 ('위험 가능성'이지 사건이 아님).
- * 끝: whoosh push (내용이 왼쪽으로 밀려나며 빠진다).
+ * 끝: whoosh push 는 Main 의 Handoff 가 담당한다 (여기서는 마지막 프레임까지 내용이 그대로 보인다).
  */
 
 // ── 레이아웃 ─────────────────────────────────────────────
 const WALL_TOP = 300;
 const WALL_BOTTOM = 790;
 const REFL_HORIZON = 738; // 벽에 비친 지평선
-const EXT = 480; // whoosh push 때 오른쪽 빈 띠가 보이지 않도록 배경을 더 넓게
+const EXT = 480; // 드리프트/핸드오프 push 때 오른쪽 빈 띠가 보이지 않도록 배경을 더 넓게
 const WW = WIDTH + EXT;
 
 // ── 타이밍 (장면 기준 프레임) ────────────────────────────
@@ -33,11 +33,11 @@ const F = {
   mirrorLabel: 50,
   diagramOut: 84, // 56→84: 완성된 도해를 약 1초 유지
   diagramGone: 96,
-  birdsStart: 90,
-  ribbon: 94,
+  birdsStart: 82, // 도해 퇴장(84→96)과 겹쳐 빈 하늘 박자를 없앤다
+  ribbon: 86,
   freeze: 150,
-  push: 181,
 };
+const CHIP_HOLD = 100000; // 헤더 칩은 장면 끝(핸드오프 포함)까지 유지
 
 // 새 편대가 향하는 접촉 지점 (벽 위, 반사된 구름 속)
 const CONTACT = { x: 820, y: 470 };
@@ -151,9 +151,10 @@ const Clouds: React.FC<{ puffs: Puff[]; drift: number; id: string; tint: string 
 const World: React.FC<{ t: number }> = ({ t }) => {
   const seams = useMemo(() => {
     const v: React.ReactNode[] = [];
-    for (let x = -64; x <= WW + 64; x += 72) v.push(<line key={`v${x}`} x1={x} y1={WALL_TOP} x2={x} y2={WALL_BOTTOM} stroke="#ffffff" strokeOpacity={0.07} strokeWidth={1.2} />);
-    for (let y = WALL_TOP + 54; y < WALL_BOTTOM; y += 54) v.push(<line key={`h${y}`} x1={0} y1={y} x2={WW} y2={y} stroke="#ffffff" strokeOpacity={0.045} strokeWidth={1} />);
-    return v;
+    // 거울 패널 멀리온: 벽 띠 안에만, 96×64 격자, 1px, 10% — 벽은 거의 사라지되 '면'으로 읽힌다
+    for (let x = 0; x <= WW; x += 96) v.push(<line key={`v${x}`} x1={x + 0.5} y1={WALL_TOP} x2={x + 0.5} y2={WALL_BOTTOM} stroke={COLORS.ink} strokeWidth={1} />);
+    for (let y = WALL_TOP + 64; y < WALL_BOTTOM; y += 64) v.push(<line key={`h${y}`} x1={0} y1={y + 0.5} x2={WW} y2={y + 0.5} stroke={COLORS.ink} strokeWidth={1} />);
+    return <g opacity={0.1}>{v}</g>;
   }, []);
   const skyDrift = t * 0.25;
   const reflDrift = -t * 0.18;
@@ -304,46 +305,33 @@ const SeoulOverlay: React.FC = () => {
   const labelX = SEOUL_BOX.x + SEOUL_BOX.w + 100;
   return (
     <AbsoluteFill style={{ opacity: 1 - out, transform: `scale(${1 - 0.04 * out})`, transformOrigin: "50% 50%" }}>
-      {/* 가독성용 어두운 받침 (거울 위의 부드러운 그늘) */}
-      <div
-        style={{
-          position: "absolute",
-          left: SEOUL_BOX.x - 200,
-          top: SEOUL_BOX.y - 110,
-          width: 1340,
-          height: SEOUL_BOX.h + 220,
-          background: "radial-gradient(ellipse at 48% 50%, rgba(5,6,15,0.72) 0%, rgba(5,6,15,0.5) 42%, rgba(5,6,15,0) 72%)",
-          opacity: Math.min(1, draw * 1.5),
-        }}
-      />
       <svg width={WIDTH} height={HEIGHT} style={{ position: "absolute", inset: 0 }}>
         <defs>
           <clipPath id="s7-seoul">
             <path d={g.d} />
           </clipPath>
-          <linearGradient id="s7-mirrorfill" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor={COLORS.neon} stopOpacity={0.9} />
-            <stop offset="0.55" stopColor="#bff9ff" stopOpacity={0.9} />
-            <stop offset="1" stopColor={COLORS.neon} stopOpacity={0.8} />
-          </linearGradient>
+          <filter id="s7-seoul-shadow" x="-20%" y="-20%" width="140%" height="150%">
+            <feDropShadow dx={0} dy={6} stdDeviation={12} floodColor="#000000" floodOpacity={0.3} />
+          </filter>
         </defs>
-        {/* 서울 (강철색) */}
-        <path d={g.d} fill={COLORS.steel} fillOpacity={0.14 * baseFill} />
+        {/* 서울 (강철색) — 거울면 위에 살짝 떠 있는 부드러운 그림자 */}
+        <path d={g.d} fill="#0a1a33" fillOpacity={0.34 * baseFill} filter="url(#s7-seoul-shadow)" />
+        <path d={g.d} fill={COLORS.steel} fillOpacity={0.08 * baseFill} />
         <g clipPath="url(#s7-seoul)">
           <path d={g.riverD} fill="none" stroke={COLORS.steel} strokeOpacity={0.3 * baseFill} strokeWidth={6} strokeLinecap="round" />
           {/* 거울 170㎢ 만큼 서쪽부터 차오름 */}
           {fillP > 0 ? (
             <>
-              <rect x={SEOUL_BOX.x - 10} y={SEOUL_BOX.y - 10} width={levelX - SEOUL_BOX.x + 10} height={SEOUL_BOX.h + 20} fill="url(#s7-mirrorfill)" opacity={0.9} />
-              <line x1={levelX} y1={SEOUL_BOX.y - 10} x2={levelX} y2={SEOUL_BOX.y + SEOUL_BOX.h + 10} stroke="#ffffff" strokeWidth={2.5} strokeOpacity={0.9} />
+              <rect x={SEOUL_BOX.x - 10} y={SEOUL_BOX.y - 10} width={levelX - SEOUL_BOX.x + 10} height={SEOUL_BOX.h + 20} fill={COLORS.steel} fillOpacity={0.7} />
+              <line x1={levelX} y1={SEOUL_BOX.y - 10} x2={levelX} y2={SEOUL_BOX.y + SEOUL_BOX.h + 10} stroke={COLORS.neon} strokeWidth={2} strokeOpacity={0.9} />
             </>
           ) : null}
         </g>
         <path
           d={g.d}
           fill="none"
-          stroke={COLORS.steel}
-          strokeWidth={3}
+          stroke={COLORS.neon}
+          strokeWidth={2}
           strokeLinejoin="round"
           pathLength={1}
           strokeDasharray={1}
@@ -364,7 +352,7 @@ const SeoulOverlay: React.FC = () => {
             letterSpacing: -0.5,
           }}
         >
-          서울 <span style={{ fontFamily: FONTS.num, fontWeight: 700 }}>605</span>㎢의
+          서울 605㎢의
         </div>
         <div
           style={{
@@ -399,9 +387,9 @@ const SeoulOverlay: React.FC = () => {
             letterSpacing: -0.4,
           }}
         >
-          <span style={{ width: 26, height: 26, borderRadius: 4, background: COLORS.neon, boxShadow: `0 0 14px ${COLORS.neon}88` }} />
+          <span style={{ width: 26, height: 26, borderRadius: 4, background: "rgba(159,179,200,0.7)", border: `2px solid ${COLORS.neon}`, boxShadow: "0 2px 8px rgba(0,0,0,0.35)" }} />
           <span>
-            = 거울 <span style={{ fontFamily: FONTS.num }}>170</span>㎢ <span style={{ fontSize: 32, color: COLORS.ink, opacity: 0.85 }}>(계산)</span>
+            = 거울 170㎢ <span style={{ fontSize: 32, color: COLORS.ink, opacity: 0.85 }}>(계산)</span>
           </span>
         </div>
       </div>
@@ -507,7 +495,7 @@ const WarningRing: React.FC<{ x: number; y: number }> = ({ x, y }) => {
   );
 };
 
-/** 상단 리본: 홍해 비행로 · 대형 철새 150만 마리+ */
+/** 상단 리본: 홍해 비행로 · 대형 철새만 150만 마리+ (버드라이프/UNDP) — 학술지 우려(주로 소형 명금류)와 수치를 섞지 않도록 범위 명시 */
 const Ribbon: React.FC = () => {
   const frame = useCurrentFrame();
   const p = progress(frame, F.ribbon, F.ribbon + 16);
@@ -535,9 +523,9 @@ const Ribbon: React.FC = () => {
         <span>홍해 비행로</span>
         <span style={{ color: COLORS.muted }}>·</span>
         <span>
-          대형 철새 <span style={{ fontFamily: FONTS.num, color: COLORS.amber }}>150</span>
-          <span style={{ color: COLORS.amber }}>만 마리+</span>
+          대형 철새만 <span style={{ color: COLORS.amber }}>150만 마리+</span>
         </span>
+        <span style={{ fontSize: 30, fontWeight: 500, color: COLORS.muted }}>(버드라이프/UNDP)</span>
       </div>
     </div>
   );
@@ -545,7 +533,6 @@ const Ribbon: React.FC = () => {
 
 export const S07MirrorBirds: React.FC = () => {
   const frame = useCurrentFrame();
-  const { durationInFrames } = useVideoConfig();
   // 접촉 직전에 장면 전체가 멈춘다 (정지 프레임)
   const t = Math.min(frame, F.freeze);
   const frozen = frame >= F.freeze;
@@ -554,14 +541,12 @@ export const S07MirrorBirds: React.FC = () => {
   const birdsOn = frame >= F.birdsStart;
   const freezeGrade = progress(frame, F.freeze, F.freeze + 8);
   const flash = frozen ? Math.max(0, 1 - (frame - F.freeze) / 5) * 0.18 : 0;
-  // whoosh push
-  const push = progress(frame, F.push, durationInFrames, Easing.in(Easing.cubic));
   // 접촉 지점 (화면 좌표, 드리프트 반영)
   const cx = CAM.x + (CONTACT.x - CAM.x) * drift;
   const cy = CAM.y + (CONTACT.y - CAM.y) * drift;
   return (
-    <SceneFrame fadeIn={12} fadeOut={4}>
-      <AbsoluteFill style={{ transform: `translateX(${-push * 420}px)`, filter: push > 0 ? `blur(${push * 6}px)` : undefined }}>
+    <SceneFrame fadeIn={0} fadeOut={0}>
+      <AbsoluteFill>
         <AbsoluteFill
           style={{
             transform: `scale(${drift})`,
@@ -585,10 +570,10 @@ export const S07MirrorBirds: React.FC = () => {
       <Grain />
       <Vignette strength={0.55} />
       <DreamLetterBox />
-      <ExperimentChip index="실험 4" title="거울 벽" />
+      <ExperimentChip index="실험 4" title="거울 벽" start={-6} end={CHIP_HOLD} />
       <DisclaimerTag />
       <Caption lines={[{ text: "거울 **170㎢**, 서울 28% (계산)", from: 0.2, to: 3.0 }]} />
-      <Caption lines={[{ text: "학술지: 철새에 '상당한 위험' 우려", from: 3.0, to: 6.4 }]} style={{ opacity: 1 - progress(frame, F.push, F.push + 7) }} />
+      <Caption lines={[{ text: "학술지: 철새에 ‘상당한 위험’ 우려", from: 3.0, to: 6.4 }]} />
       <SourceTag label="계산" text="170km × 500m × 2면 ÷ 서울 605.2㎢" start={sec(0.4)} end={F.diagramGone} />
       <SourceTag text="TREE 학술지 · 2024.01" start={F.diagramGone} />
       <SourceTag text="철새 수: 버드라이프/UNDP" position="bottomLeft" start={F.ribbon + 4} />

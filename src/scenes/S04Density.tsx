@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { AbsoluteFill, Easing, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Easing, interpolate, useCurrentFrame } from "remotion";
 import { COLORS, FONTS } from "../theme";
 import { clamp01, easeOutBack, fmt, progress } from "../utils/anim";
 import {
@@ -20,9 +20,9 @@ import {
  * 19.8s → 26.4s (198 frames). 모든 시간은 장면 기준(0 = 19.8s).
  *
  * 선형 눈금 막대 비교: 강철색 서울·맨해튼 막대는 짧고, 시안 '더 라인' 막대는
- * 패널 테두리를 뚫고 화면 밖으로 넘쳐 나간다. 3.2s(=23.0s)에 ×17·×9 태그.
- * 시작은 이전 장면의 whoosh push 를 이어받아 오른쪽에서 밀려 들어오고,
- * 끝은 왼쪽으로 밀려 나가며 다음 장면(s05)에 넘긴다.
+ * 패널 테두리를 뚫고 화면 밖으로 넘쳐 나간다. 3.2s(=23.0s)에 큰 숫자 옆
+ * '= 서울의 ×17 · 맨해튼의 ×9' 칩이 팝하고, 시안 막대에 '한 칸 = 서울 밀도 1개'
+ * 눈금이 새겨진다. 끝의 push-out 은 Main(HandoffContext)이 맡는다.
  */
 
 // ── 데이터 (docs/storyboard.json s04-density) ───────────────────────────
@@ -44,13 +44,13 @@ const ROW_MAN_Y = 386;
 const ROW_LINE_Y = 488;
 
 // ── 타이밍 (프레임, 장면 기준) ───────────────────────────────────────────
-const F_PANEL = -4;
+const F_PANEL = -14; // 0프레임에 이미 패널이 보이도록
 const F_SEOUL = 16;
 const F_MAN = 32;
 const F_LINE = 50;
 const F_LINE_END = 94;
 const F_TAGS = 96; // 23.0s
-const PUSH_OUT = 12;
+const SCENE_LEN = 198;
 
 const lineEase = Easing.bezier(0.55, 0, 0.25, 1);
 
@@ -76,16 +76,12 @@ const SteelRow: React.FC<{
   value: number;
   y: number;
   start: number;
-  mult: string;
-  multStart: number;
-}> = ({ label, value, y, start, mult, multStart }) => {
+}> = ({ label, value, y, start }) => {
   const frame = useCurrentFrame();
   const appear = progress(frame, start - 6, start + 8);
   const p = progress(frame, start, start + 20, Easing.out(Easing.cubic));
   const w = value * K * p;
   const h = 44;
-  const tagP = progress(frame, multStart, multStart + 12, easeOutBack);
-  const tagO = progress(frame, multStart, multStart + 6);
   return (
     <div style={{ position: "absolute", left: 0, top: y - h / 2, height: h, width: 1920, opacity: appear }}>
       <div
@@ -138,27 +134,6 @@ const SteelRow: React.FC<{
         >
           {fmt(value * p)}
         </span>
-        {tagO > 0 ? (
-          <span
-            style={{
-              fontFamily: FONTS.num,
-              fontWeight: 900,
-              fontSize: 36,
-              color: COLORS.bg,
-              background: COLORS.neon,
-              borderRadius: 8,
-              padding: "4px 16px 2px",
-              letterSpacing: 4,
-              boxShadow: `0 0 22px ${COLORS.neon}88`,
-              opacity: tagO,
-              transform: `scale(${0.4 + 0.6 * tagP})`,
-              transformOrigin: "left center",
-              display: "inline-block",
-            }}
-          >
-            {mult}
-          </span>
-        ) : null}
       </div>
     </div>
   );
@@ -248,7 +223,6 @@ const LineRow: React.FC<{ crossFrame: number }> = ({ crossFrame }) => {
 
 export const S04Density: React.FC = () => {
   const frame = useCurrentFrame();
-  const { durationInFrames } = useVideoConfig();
 
   // 시안 막대가 패널 테두리를 넘는 프레임 (정적 계산)
   const crossFrame = useMemo(() => {
@@ -258,19 +232,17 @@ export const S04Density: React.FC = () => {
     return F_LINE_END;
   }, []);
 
-  // whoosh push: 오른쪽에서 밀려 들어와 왼쪽으로 밀려 나간다
+  // whoosh push 의 여운: 오른쪽에서 살짝 밀려 들어와 자리 잡는다 (끝의 push-out 은 Main 담당)
   const pushIn = progress(frame, 0, 16, Easing.out(Easing.cubic));
-  const pushOut = progress(frame, durationInFrames - PUSH_OUT, durationInFrames, Easing.in(Easing.cubic));
-  const pushX = (1 - pushIn) * 240 - pushOut * 300;
-  const contentO = Math.min(0.3 + 0.7 * progress(frame, 0, 10), 1 - pushOut);
-  // 느린 카메라 드리프트 (왼쪽 기준으로 아주 살짝 줌인)
-  const drift = interpolate(frame, [0, durationInFrames], [1, 1.035]);
+  const pushX = (1 - pushIn) * 120;
+  const contentO = 0.75 + 0.25 * progress(frame, 0, 8);
+  // 느린 카메라 드리프트 (왼쪽 기준으로 아주 살짝 줌인, 핸드오프 구간에도 계속)
+  const drift = interpolate(frame, [0, SCENE_LEN], [1, 1.035]);
 
   // 패널
   const panelO = progress(frame, F_PANEL, F_PANEL + 16);
   const burst = frame >= crossFrame ? Math.exp(-(frame - crossFrame) / 10) : 0;
   const breach = frame >= crossFrame ? 1 : 0;
-  const axisTicks = [0, 50000, 100000];
 
   // 화면 오른쪽 가장자리로 번지는 시안 빛 (막대가 화면을 벗어난 뒤)
   const lineW = LINE_LEN * progress(frame, F_LINE, F_LINE_END, lineEase);
@@ -278,6 +250,9 @@ export const S04Density: React.FC = () => {
 
   const numO = progress(frame, F_LINE + 8, F_LINE + 20);
   const noteO = progress(frame, F_LINE_END - 4, F_LINE_END + 14);
+  const chipP = progress(frame, F_TAGS, F_TAGS + 12, easeOutBack);
+  const chipO = progress(frame, F_TAGS, F_TAGS + 6);
+  const unitO = progress(frame, F_TAGS + 4, F_TAGS + 16);
 
   return (
     <SceneFrame fadeIn={0} fadeOut={0}>
@@ -345,40 +320,24 @@ export const S04Density: React.FC = () => {
               opacity: progress(frame, F_PANEL + 10, F_PANEL + 26),
             }}
           />
-          {/* 눈금 */}
-          {axisTicks.map((v) => {
-            const x = X0 + v * K;
-            return (
-              <React.Fragment key={v}>
-                {v > 0 ? (
-                  <div
-                    style={{
-                      position: "absolute",
-                      left: x,
-                      top: PANEL_TOP,
-                      width: 1,
-                      height: PANEL_BOTTOM - PANEL_TOP,
-                      background: `${COLORS.steel}1f`,
-                    }}
-                  />
-                ) : null}
-                <div
-                  style={{
-                    position: "absolute",
-                    left: x - 100,
-                    width: 200,
-                    top: PANEL_BOTTOM + 10,
-                    textAlign: "center",
-                    fontFamily: FONTS.num,
-                    fontSize: 24,
-                    color: COLORS.dim,
-                  }}
-                >
-                  {v === 0 ? "0" : `${v / 10000}만`}
-                </div>
-              </React.Fragment>
-            );
-          })}
+          {/* 눈금 설명: 시안 막대의 한 칸 = 서울 막대 하나 (5만·10만 축 눈금은 칸과 어긋나 삭제) */}
+          <div
+            style={{
+              position: "absolute",
+              left: X0 + 4,
+              top: PANEL_BOTTOM + 10,
+              whiteSpace: "nowrap",
+              fontFamily: FONTS.body,
+              fontWeight: 500,
+              fontSize: 28,
+              color: COLORS.muted,
+              letterSpacing: -0.2,
+              opacity: unitO,
+              transform: `translateY(${(1 - unitO) * 8}px)`,
+            }}
+          >
+            한 칸 = 서울 밀도 1개
+          </div>
           <div
             style={{
               position: "absolute",
@@ -387,7 +346,7 @@ export const S04Density: React.FC = () => {
               whiteSpace: "nowrap",
               fontFamily: FONTS.body,
               fontWeight: 500,
-              fontSize: 24,
+              fontSize: 28,
               color: COLORS.muted,
               letterSpacing: -0.2,
             }}
@@ -396,8 +355,8 @@ export const S04Density: React.FC = () => {
           </div>
         </div>
 
-        <SteelRow label="서울" value={SEOUL} y={ROW_SEOUL_Y} start={F_SEOUL} mult="×17" multStart={F_TAGS} />
-        <SteelRow label="맨해튼" value={MANHATTAN} y={ROW_MAN_Y} start={F_MAN} mult="×9" multStart={F_TAGS + 5} />
+        <SteelRow label="서울" value={SEOUL} y={ROW_SEOUL_Y} start={F_SEOUL} />
+        <SteelRow label="맨해튼" value={MANHATTAN} y={ROW_MAN_Y} start={F_MAN} />
         <LineRow crossFrame={crossFrame} />
 
         {/* 뚫린 테두리가 번쩍이는 세로 섬광 */}
@@ -469,6 +428,28 @@ export const S04Density: React.FC = () => {
           >
             계산
           </div>
+          {chipO > 0 ? (
+            <div
+              style={{
+                fontFamily: FONTS.body,
+                fontWeight: 700,
+                fontSize: 32,
+                color: COLORS.bg,
+                background: COLORS.neon,
+                borderRadius: 8,
+                padding: "4px 18px",
+                marginBottom: 20,
+                marginLeft: 6,
+                whiteSpace: "nowrap",
+                boxShadow: `0 0 22px ${COLORS.neon}88`,
+                opacity: chipO,
+                transform: `scale(${0.4 + 0.6 * chipP})`,
+                transformOrigin: "left center",
+              }}
+            >
+              = 서울의 ×17 · 맨해튼의 ×9
+            </div>
+          ) : null}
         </div>
         <div
           style={{
@@ -510,14 +491,15 @@ export const S04Density: React.FC = () => {
       />
       {/* 한 줄씩 별도 Caption: 같은 자리에서 교차 페이드 (리플로 없음) */}
       <Caption lines={[{ text: "1㎢당 **26만 명**이 산다 (계산)", from: 0.3, to: 3.1 }]} />
-      <Caption lines={[{ text: "서울의 **17배**, 맨해튼의 **9배**", from: 3.1, to: 6.6 }]} />
+      {/* to 는 장면 끝(6.6s) 너머로: 핸드오프 10프레임 동안에도 페이드 없이 유지 */}
+      <Caption lines={[{ text: "서울의 **17배**, 맨해튼의 **9배**", from: 3.1, to: 7.4 }]} />
 
       <Vignette strength={0.6} />
       <Grain />
       <DreamLetterBox />
-      <ExperimentChip index="실험 1" title="인구밀도" start={-4} />
+      <ExperimentChip index="실험 1" title="인구밀도" start={-4} end={SCENE_LEN + 40} />
       <DisclaimerTag start={-12} />
-      <SourceTag label="계산" text="900만 ÷ 34㎢ · 서울 2022 · 맨해튼 2020" start={14} end={durationInFrames} />
+      <SourceTag label="계산" text="900만 ÷ 34㎢ · 서울 2022 · 맨해튼 2020" start={14} />
     </SceneFrame>
   );
 };

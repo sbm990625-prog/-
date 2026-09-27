@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { AbsoluteFill, Easing, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Easing, interpolate, useCurrentFrame } from "remotion";
 import { COLORS, FONTS } from "../theme";
 import { clamp01, progress } from "../utils/anim";
 import { Caption, DisclaimerTag, DreamLetterBox, Grain, SceneFrame, SourceTag, Vignette } from "../components";
@@ -12,7 +12,7 @@ import { Caption, DisclaimerTag, DreamLetterBox, Grain, SceneFrame, SourceTag, V
  *  - A (0–3.1s): 추상 스트립. 시안 '더 라인 170km' 막대 위로 강철색 점선 '서울 → 강릉 · 직선 168km'가 올라와 맞물림(2.2s 스냅).
  *  - B (3.1–6.2s): 기준선 위 실루엣 — 부르즈 할리파 828m(흐린 강철) · 롯데월드타워 555m(강철) · 더 라인 500m(시안 거울 벽,
  *    오른쪽 화면 밖으로 이어짐). 4.7s(=18.3s) 벽이 두 장으로 복제되어 마주 보고 '간격 200m'.
- *  - 끝: whoosh push (왼쪽으로 밀려 나감).
+ *  - 끝: 경계 전환(whoosh push)은 Main이 담당 — 장면 자체는 마지막 프레임까지 그대로 보인다.
  */
 
 const W = 1920;
@@ -24,16 +24,16 @@ const T = {
   steelIn: 16,
   steelAligned: 48,
   snap: 64, // 스냅 SFX 지점 (15.73s 절대)
-  stripOut: 86,
-  stripGone: 104,
-  baseIn: 82,
-  burj: 98,
-  lotte: 88,
-  line: 94,
-  grow: 34,
+  stripOut: 90, // 16.6s — 스트립이 위로 30px 빠지며 사라짐
+  stripGone: 100, // 16.93s
+  baseIn: 100, // HeightCompare 시작 = 스트립이 완전히 사라진 뒤
+  lotte: 102,
+  line: 108,
+  burj: 112,
+  grow: 24,
   dup: 141, // 18.3s 절대
-  pushOut: 174,
 } as const;
+const SCENE_LEN = 186;
 
 // ─── 스트립 기하 ─────────────────────────────────────────
 const STRIP_Y = 470;
@@ -101,10 +101,10 @@ const Strip: React.FC = () => {
     return out;
   }, []);
 
-  // 0프레임부터 30% 그려진 상태 — s02에서 넘어오는 push가 빈 화면에 떨어지지 않게
-  const barP = 0.3 + 0.7 * progress(frame, T.barIn, T.barIn + 22, Easing.out(Easing.cubic));
+  // 0프레임부터 막대 45% + 라벨이 보이는 상태 — 첫 프레임이 곧바로 이 장면으로 읽히게
+  const barP = 0.45 + 0.55 * progress(frame, T.barIn, T.barIn + 20, Easing.out(Easing.cubic));
   const barEnd = STRIP_X0 + (STRIP_X1 - STRIP_X0) * barP;
-  const cyanLabelO = progress(frame, 2, 18);
+  const cyanLabelO = 0.65 + 0.35 * progress(frame, 0, 12);
   const tickO = progress(frame, 8, 26) * 0.7;
 
   // 강철색 점선: 아래·왼쪽에서 미끄러져 들어와 → 막대 위로 올라와 스냅
@@ -125,7 +125,7 @@ const Strip: React.FC = () => {
   const steelY = STRIP_Y + steelDy;
 
   return (
-    <AbsoluteFill style={{ opacity: groupO, transform: `translateY(${-50 * outP}px)` }}>
+    <AbsoluteFill style={{ opacity: groupO, transform: `translateY(${-30 * outP}px)` }}>
       <svg width={W} height={H} style={{ position: "absolute", inset: 0, overflow: "visible" }}>
         <defs>
           <filter id="s03-strip-glow" x="-10%" y="-200%" width="120%" height="500%">
@@ -385,10 +385,10 @@ const NameLabel: React.FC<{ x: number; text: string; color: string; opacity: num
 
 const Heights: React.FC = () => {
   const frame = useCurrentFrame();
-  const inO = progress(frame, T.baseIn, T.baseIn + 14);
+  const inO = progress(frame, T.baseIn, T.baseIn + 8);
   if (inO <= 0) return null;
 
-  const baseP = progress(frame, T.baseIn, T.baseIn + 22, Easing.inOut(Easing.cubic));
+  const baseP = progress(frame, T.baseIn, T.baseIn + 10, Easing.out(Easing.cubic));
   const gp = (s: number) => progress(frame, s, s + T.grow, Easing.out(Easing.cubic));
   const burjP = gp(T.burj);
   const lotteP = gp(T.lotte);
@@ -502,7 +502,7 @@ const Heights: React.FC = () => {
           whiteSpace: "nowrap",
         }}
       >
-        더 라인 <span style={{ fontFamily: FONTS.num, fontSize: 34, color: COLORS.neon }}>→ 170km</span>
+        더 라인 <span style={{ fontFamily: FONTS.body, fontWeight: 700, fontSize: 36, color: COLORS.neon }}>→ 170km</span>
       </div>
 
       {/* 높이 라벨 (카운트업) */}
@@ -537,8 +537,7 @@ const Heights: React.FC = () => {
           whiteSpace: "nowrap",
         }}
       >
-        간격 <span style={{ fontFamily: FONTS.num, fontSize: 32 }}>200</span>
-        <span style={{ fontFamily: FONTS.num, fontSize: 24, marginLeft: 3 }}>m</span>
+        간격 200m
       </div>
     </AbsoluteFill>
   );
@@ -546,23 +545,15 @@ const Heights: React.FC = () => {
 
 export const S03KoreaScale: React.FC = () => {
   const frame = useCurrentFrame();
-  const { durationInFrames } = useVideoConfig();
-
-  // whoosh push: 오른쪽에서 밀려 들어와 → 끝에서 왼쪽으로 밀려 나감
-  const pushIn = progress(frame, 0, 10, Easing.out(Easing.cubic));
-  const pushOut = progress(frame, T.pushOut, durationInFrames, Easing.in(Easing.cubic));
-  const tx = (1 - pushIn) * 90 - pushOut * 180;
-  const contentO = Math.min(0.4 + 0.6 * pushIn, 1 - pushOut);
-  const drift = interpolate(frame, [0, durationInFrames], [1.0, 1.025]);
+  // 경계 전환은 Main이 담당 — 자체 push-in/out 없음. 느린 줌 드리프트만 계속된다.
+  const drift = interpolate(frame, [0, SCENE_LEN], [1.0, 1.025]);
 
   return (
     <SceneFrame fadeIn={0} fadeOut={0}>
       <Grid />
-      <AbsoluteFill style={{ opacity: contentO, transform: `translateX(${tx}px)` }}>
-        <AbsoluteFill style={{ transform: `scale(${drift})`, transformOrigin: "60% 55%" }}>
-          <Strip />
-          <Heights />
-        </AbsoluteFill>
+      <AbsoluteFill style={{ transform: `scale(${drift})`, transformOrigin: "60% 55%" }}>
+        <Strip />
+        <Heights />
       </AbsoluteFill>
 
       {/* 자막 대비용 하단 밴드 */}
@@ -570,14 +561,14 @@ export const S03KoreaScale: React.FC = () => {
 
       {/* 줄마다 별도 Caption — 같은 하단 앵커에서 교차 페이드 (한 Caption에 넣으면 겹침 구간에 L1이 위로 튐) */}
       <Caption lines={[{ text: "길이는 **서울~강릉** 직선거리", from: 0.2, to: 3.05 }]} accent={COLORS.steel} />
-      <Caption lines={[{ text: "**롯데월드타워급** 벽이 두 줄", from: 3.15, to: 6.2 }]} accent={COLORS.steel} />
+      <Caption lines={[{ text: "**롯데월드타워급** 벽이 두 줄", from: 3.15, to: 6.9 /* 끝까지 유지 — 경계 페이드는 Main이 담당 */ }]} accent={COLORS.steel} />
 
       <Grain />
       <Vignette strength={0.6} />
       <DreamLetterBox />
       <DisclaimerTag start={-12} />
       <SourceTag label="계산" text="서울시청~강릉시청 직선거리 (도로 거리 아님)" start={T.snap - 14} end={T.stripGone} />
-      <SourceTag label="출처" text="높이: 브리태니커" start={T.stripGone} end={durationInFrames + 10} />
+      <SourceTag label="출처" text="높이: 브리태니커" start={T.stripGone} end={SCENE_LEN + 30} />
     </SceneFrame>
   );
 };

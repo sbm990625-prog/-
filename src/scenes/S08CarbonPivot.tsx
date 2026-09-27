@@ -31,7 +31,6 @@ const CUT = 240; // 57.0s
 // 연기 기둥 기하
 const PLUME_X = 600;
 const PLUME_BASE = 826;
-const CELL = 22;
 
 // 공중 시점의 170km 선 (장면 기준 화면 좌표)
 const AX1 = 250;
@@ -70,93 +69,80 @@ const MeasureGrid: React.FC<{ drift: number }> = ({ drift }) => (
 );
 
 /* ───────── 탄소 연기 기둥 (입자 큐브) ───────── */
-type Cube = {
-  sx: number;
-  sy: number;
-  tx: number;
-  ty: number;
-  arrive: number;
-  travel: number;
+// 땅의 빛줄기에서 끊임없이 솟아오르며 위로 갈수록 넓어지고 커지는 보라 입자.
+// 뒤쪽 40%는 살짝 흐리고(깊이감), 기둥 꼭대기 25%에서 옅어져 사라진다.
+type Mote = {
+  birth: number; // 첫 출발 프레임 (프리롤 포함)
+  life: number; // 바닥→꼭대기 이동 시간
+  lane: number; // -1..1 가로 위치 (삼각 분포 — 중심이 짙다)
+  sizeK: number;
+  alpha: number; // 0.18..0.45
+  back: boolean;
   rot0: number;
-  rot1: number;
-  size: number;
-  shade: number;
-  swirl: number;
+  spin: number;
   phase: number;
+  sway: number;
 };
 
-type Wisp = { x: number; period: number; offset: number; size: number; drift: number; rot: number };
+const PLUME_H = 560; // 기둥 최대 높이 (px)
+const PLUME_ROOT_Y = PLUME_BASE + 40;
+const PREROLL = 18; // 0프레임에 이미 작은 기둥이 서 있도록
+const MOTES = 340;
 
-const CarbonPlume: React.FC<{ frame: number }> = ({ frame }) => {
-  const cubes = useMemo<Cube[]>(() => {
-    // 연기 뭉게: 위로 갈수록 커지는 원들의 합집합 안쪽 격자점을 큐브 자리로 쓴다
-    const blobs: { x: number; y: number; r: number }[] = [];
-    for (let k = 0; k <= 9; k++) {
-      const t = k / 9;
-      // 바람에 오른쪽으로 휘며 위로 갈수록 넓게 퍼지는 기둥
-      const x = PLUME_X - 10 + 26 * Math.sin(t * 4.2) + t * t * 90;
-      const y = PLUME_BASE - 14 - t * 410;
-      const r = 46 + 120 * Math.pow(t, 1.1);
-      blobs.push({ x, y, r });
-      if (k === 5) blobs.push({ x: x - r * 0.75, y: y + r * 0.2, r: r * 0.55 });
-      if (k >= 6) blobs.push({ x: x + r * 0.78, y: y + r * (0.3 - (k - 6) * 0.15), r: r * (0.5 + (k - 6) * 0.04) });
-    }
-    const top = blobs[blobs.length - 2];
-    blobs.push({ x: top.x - top.r * 0.2, y: top.y - top.r * 0.42, r: top.r * 0.62 });
-    const slots: { x: number; y: number; depth: number; k: number }[] = [];
-    let gi = 0;
-    for (let gy = PLUME_BASE; gy > 150; gy -= CELL) {
-      for (let gx = PLUME_X - 360; gx < PLUME_X + 400; gx += CELL) {
-        gi++;
-        const x = gx + (random(`s08-jx-${gi}`) - 0.5) * 8;
-        const y = gy + (random(`s08-jy-${gi}`) - 0.5) * 8;
-        let depth = -Infinity;
-        for (const b of blobs) depth = Math.max(depth, b.r - Math.hypot(x - b.x, y - b.y));
-        if (depth < 0) continue;
-        // 가장자리는 해진 윤곽 (연기처럼)
-        if (depth < 26 && random(`s08-skip-${gi}`) > 0.25 + depth / 40) continue;
-        slots.push({ x, y, depth, k: random(`s08-k-${gi}`) });
-      }
-    }
-    // 아래에서부터 쌓인다 (약간 섞어서)
-    slots.sort((a, b) => b.y - b.k * 70 - (a.y - a.k * 70));
-    const N = slots.length;
-    return slots.map((s, i) => {
-      const f = i / N;
-      const core = clamp01(s.depth / 60);
-      return {
-        sx: PLUME_X + (random(`s08-sx-${i}`) - 0.5) * 80,
-        sy: PLUME_BASE + 44,
-        tx: s.x,
-        ty: s.y,
-        arrive: 8 + Math.pow(f, 0.9) * 128 + random(`s08-a-${i}`) * 6,
-        travel: 16 + (PLUME_BASE + 40 - s.y) * 0.03,
-        rot0: (random(`s08-r0-${i}`) - 0.5) * 160,
-        rot1: (random(`s08-r1-${i}`) - 0.5) * 30,
-        size: 10 + core * 7 + random(`s08-sz-${i}`) * 4,
-        shade: 0.35 + 0.65 * core * random(`s08-sh-${i}`) + 0.2 * core,
-        swirl: (random(`s08-sw-${i}`) - 0.5) * 80,
-        phase: random(`s08-ph-${i}`) * Math.PI * 2,
-      };
-    });
-  }, []);
-
-  const wisps = useMemo<Wisp[]>(
+const CarbonPlume: React.FC<{ frame: number; fade: number }> = ({ frame, fade }) => {
+  const motes = useMemo<Mote[]>(
     () =>
-      Array.from({ length: 26 }, (_, i) => ({
-        x: PLUME_X + 20 + (random(`s08-wx-${i}`) - 0.5) * 360,
-        period: 70 + random(`s08-wp-${i}`) * 50,
-        offset: random(`s08-wo-${i}`) * 120,
-        size: 7 + random(`s08-ws-${i}`) * 7,
-        drift: (random(`s08-wd-${i}`) - 0.5) * 80,
-        rot: (random(`s08-wr-${i}`) - 0.5) * 180,
-      })),
+      Array.from({ length: MOTES }, (_, i) => {
+        const life = 84 + random(`s08-ml-${i}`) * 40;
+        return {
+          birth: random(`s08-mb-${i}`) * life * 1.1,
+          life,
+          lane: random(`s08-mx1-${i}`) + random(`s08-mx2-${i}`) - 1,
+          sizeK: 0.7 + random(`s08-ms-${i}`) * 0.3,
+          alpha: 0.18 + random(`s08-ma-${i}`) * 0.27,
+          back: random(`s08-md-${i}`) < 0.4,
+          rot0: random(`s08-mr-${i}`) * 90,
+          spin: (random(`s08-mv-${i}`) - 0.5) * 2.4,
+          phase: random(`s08-mp-${i}`) * Math.PI * 2,
+          sway: 6 + random(`s08-mw-${i}`) * 14,
+        };
+      }),
     [],
   );
 
-  // 기둥 꼭대기 높이 (쌓인 만큼) — 흩날리는 입자의 출발 높이
-  const filled = clamp01((frame - 8) / 130);
-  const topY = PLUME_BASE - filled * (PLUME_BASE - 250);
+  const t = frame + PREROLL;
+  const rootOn = 0.55 + 0.45 * progress(frame, 0, 20);
+
+  const renderMote = (m: Mote, i: number) => {
+    const age = t - m.birth;
+    if (age < 0) return null;
+    const u = (age % m.life) / m.life; // 0 = 바닥, 1 = 꼭대기
+    const h = u * PLUME_H;
+    // 바람에 오른쪽으로 휘는 중심선, 위로 갈수록 넓어지는 폭
+    const cx = PLUME_X + 80 * u * u + 10 * Math.sin(u * 3.4 + frame * 0.02);
+    const halfW = 26 + 210 * Math.pow(u, 1.15);
+    const x = cx + m.lane * halfW + Math.sin(frame * 0.05 + m.phase) * m.sway * u;
+    const y = PLUME_ROOT_Y - 6 - h;
+    const size = (6 + 16 * u) * m.sizeK + 6 * (1 - m.sizeK) * u; // 6..22 px
+    const fadeIn = clamp01(u / 0.06);
+    const fadeTop = 1 - clamp01((u - 0.75) / 0.25);
+    const o = m.alpha * fadeIn * fadeTop;
+    if (o <= 0.005) return null;
+    const rot = m.rot0 + age * m.spin;
+    return (
+      <rect
+        key={i}
+        x={-size / 2}
+        y={-size / 2}
+        width={size}
+        height={size}
+        rx={size * 0.18}
+        fill={COLORS.neon2}
+        opacity={o}
+        transform={`translate(${x.toFixed(1)} ${y.toFixed(1)}) rotate(${rot.toFixed(1)})`}
+      />
+    );
+  };
 
   return (
     <svg width={WIDTH} height={HEIGHT} style={{ position: "absolute", inset: 0, overflow: "visible" }}>
@@ -166,65 +152,28 @@ const CarbonPlume: React.FC<{ frame: number }> = ({ frame }) => {
           <stop offset="0.5" stopColor={COLORS.neon} stopOpacity={0.9} />
           <stop offset="1" stopColor={COLORS.neon} stopOpacity={0} />
         </linearGradient>
+        <radialGradient id="s08-root-haze" cx="0.5" cy="1" r="0.9">
+          <stop offset="0" stopColor={COLORS.neon2} stopOpacity={0.28} />
+          <stop offset="1" stopColor={COLORS.neon2} stopOpacity={0} />
+        </radialGradient>
+        <filter id="s08-mote-blur" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation={2} />
+        </filter>
       </defs>
       {/* 기둥의 뿌리 = 빛의 선 한 토막 */}
-      <rect x={PLUME_X - 420} y={PLUME_BASE + 40} width={840} height={3} fill="url(#s08-ground)" opacity={0.55 + 0.45 * progress(frame, 0, 20)} />
-      <rect x={PLUME_X - 420} y={PLUME_BASE + 34} width={840} height={15} fill="url(#s08-ground)" opacity={0.18 * (0.55 + 0.45 * progress(frame, 0, 20))} />
-      {cubes.map((c, i) => {
-        const launch = c.arrive - c.travel;
-        if (frame < launch) return null;
-        const t = clamp01((frame - launch) / c.travel);
-        const e = Easing.out(Easing.cubic)(t);
-        const settle = frame - c.arrive;
-        const breath = settle > 0 ? Math.sin(frame * 0.06 + c.phase) * 1.4 : 0;
-        const x = c.sx + (c.tx - c.sx) * e + Math.sin(t * Math.PI) * c.swirl;
-        const y = c.sy + (c.ty - c.sy) * e + breath;
-        const rot = c.rot0 + (c.rot1 - c.rot0) * e;
-        const o = clamp01(t * 4) * (0.45 + 0.55 * Math.min(1, c.shade));
-        const lum = Math.round(28 + Math.min(1, c.shade) * 30); // 어두운 회청색
-        const fill = `rgb(${lum},${lum + 3},${lum + 18})`;
-        const s = c.size;
-        return (
-          <rect
-            key={i}
-            x={-s / 2}
-            y={-s / 2}
-            width={s}
-            height={s}
-            rx={1.5}
-            fill={fill}
-            stroke={COLORS.neon2}
-            strokeOpacity={0.22 + Math.min(1, c.shade) * 0.22}
-            strokeWidth={1}
-            opacity={o}
-            transform={`translate(${x.toFixed(1)} ${y.toFixed(1)}) rotate(${rot.toFixed(1)})`}
+      <rect x={PLUME_X - 420} y={PLUME_ROOT_Y} width={840} height={3} fill="url(#s08-ground)" opacity={rootOn} />
+      <rect x={PLUME_X - 420} y={PLUME_ROOT_Y - 6} width={840} height={15} fill="url(#s08-ground)" opacity={0.18 * rootOn} />
+      {/* 뒤쪽 입자 (흐림) → 앞쪽 입자 (선명) */}
+      {fade > 0 ? (
+        <g opacity={fade}>
+          <path
+            d={`M${PLUME_X - 170} ${PLUME_ROOT_Y} A170 90 0 0 1 ${PLUME_X + 190} ${PLUME_ROOT_Y} Z`}
+            fill="url(#s08-root-haze)"
           />
-        );
-      })}
-      {/* 꼭대기에서 흩어져 오르는 입자 (연기) */}
-      {frame > 30
-        ? wisps.map((w, i) => {
-            const local = (frame + w.offset) % w.period;
-            const u = local / w.period;
-            const y = topY + 30 - u * 120;
-            const x = w.x + w.drift * u + Math.sin(u * 5 + i) * 10;
-            const o = Math.sin(u * Math.PI) * 0.55 * progress(frame, 30, 60);
-            return (
-              <rect
-                key={`w${i}`}
-                x={x - w.size / 2}
-                y={y - w.size / 2}
-                width={w.size}
-                height={w.size}
-                fill="#2c3146"
-                stroke={COLORS.neon2}
-                strokeOpacity={0.25}
-                opacity={o}
-                transform={`rotate(${(w.rot * u).toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)})`}
-              />
-            );
-          })
-        : null}
+          <g filter="url(#s08-mote-blur)">{motes.map((m, i) => (m.back ? renderMote(m, i) : null))}</g>
+          <g>{motes.map((m, i) => (m.back ? null : renderMote(m, i)))}</g>
+        </g>
+      ) : null}
     </svg>
   );
 };
@@ -256,7 +205,7 @@ const UkCompare: React.FC<{ frame: number; start: number }> = ({ frame, start })
           letterSpacing: -0.5,
         }}
       >
-        = 영국 약 4년치+
+        = 영국 4년치+
       </div>
       <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
         {[0, 1, 2, 3, 4].map((k) => {
@@ -305,24 +254,24 @@ const DawnAerial: React.FC<{ frame: number }> = ({ frame }) => {
   return (
     <AbsoluteFill>
       <LineAerial night sea x1={AX1} y1={AY1} x2={AX2} y2={AY2} thickness={5} draw={1} />
-      {/* 새벽빛: 전체를 약속 구간의 짙은 청흑으로 누르고, 동쪽(오른쪽 위)에서 따뜻한 빛이 번진다 */}
-      <AbsoluteFill style={{ background: "linear-gradient(170deg, rgba(8,14,34,0.62) 0%, rgba(5,6,15,0.42) 55%, rgba(5,6,15,0.66) 100%)" }} />
-      <AbsoluteFill style={{ opacity: 0.55 }}>
-        <MeasureGrid drift={0} />
-      </AbsoluteFill>
+      {/* 새벽빛: 아래 지평선 쪽 앰버 띠 → 보라 → 위쪽 오프블랙 (세로 그라디언트) */}
       <AbsoluteFill
         style={{
-          background: "radial-gradient(ellipse 70% 60% at 100% 0%, rgba(255,154,106,0.42) 0%, rgba(255,154,106,0.12) 45%, rgba(255,154,106,0) 75%)",
-          mixBlendMode: "screen",
-          opacity: 0.35 + 0.65 * progress(frame, PIVOT, PIVOT + 60),
+          background:
+            "linear-gradient(to top, rgba(255,179,71,0.18) 0%, rgba(255,179,71,0.1) 12%, rgba(124,92,255,0.25) 34%, rgba(40,30,90,0.45) 58%, rgba(5,6,15,0.9) 100%)",
         }}
       />
-      <GlowBlob x={(AX1 + AX2) / 2} y={(AY1 + AY2) / 2} r={760} color={COLORS.neon} opacity={bloom * 0.34} />
+      <AbsoluteFill style={{ opacity: 0.45 }}>
+        <MeasureGrid drift={0} />
+      </AbsoluteFill>
       <GlowBlob x={(AX1 + AX2) / 2 + 200} y={(AY1 + AY2) / 2 - 80} r={560} color={COLORS.neon2} opacity={bloom * 0.22} />
       <svg width={WIDTH} height={HEIGHT} style={{ position: "absolute", inset: 0 }}>
         <defs>
           <filter id="s08-line-glow" x="-10%" y="-400%" width="120%" height="900%">
             <feGaussianBlur stdDeviation={9 + 5 * bloom} />
+          </filter>
+          <filter id="s08-bloom" x="-20%" y="-600%" width="140%" height="1300%">
+            <feGaussianBlur stdDeviation={30 + 16 * bloom} />
           </filter>
           <radialGradient id="s08-pulse">
             <stop offset="0" stopColor="#ffffff" stopOpacity={1} />
@@ -332,6 +281,18 @@ const DawnAerial: React.FC<{ frame: number }> = ({ frame }) => {
         </defs>
         {/* 170 km 히어로 선 — 그레이드/그리드 위에 다시 그려 시안으로 빛나게 */}
         <g opacity={lineOn}>
+          {/* 절정 블룸: 선을 따라 넓게 번지는 시안 (원형 번짐 없이) */}
+          <line
+            x1={AX1}
+            y1={AY1}
+            x2={AX2}
+            y2={AY2}
+            stroke={COLORS.neon}
+            strokeWidth={70 + 90 * bloom}
+            strokeOpacity={0.08 + 0.2 * bloom}
+            strokeLinecap="round"
+            filter="url(#s08-bloom)"
+          />
           <line
             x1={AX1}
             y1={AY1}
@@ -360,11 +321,12 @@ const DawnAerial: React.FC<{ frame: number }> = ({ frame }) => {
             fill={COLORS.neon}
             fontFamily={FONTS.num}
             fontWeight={700}
-            fontSize={34}
-            letterSpacing={4}
+            fontSize={36}
+            letterSpacing={3}
+            style={{ filter: `drop-shadow(0 0 10px ${COLORS.neon}88) drop-shadow(0 2px 3px #000)` }}
             transform={`rotate(${angle} ${(AX1 + AX2) / 2 + nx * (off + 40)} ${(AY1 + AY2) / 2 + ny * (off + 40)})`}
           >
-            170 KM
+            170km
           </text>
         </g>
       </svg>
@@ -428,7 +390,7 @@ export const S08CarbonPivot: React.FC = () => {
             <MeasureGrid drift={frame * 0.25} />
             <GlowBlob x={PLUME_X + 30} y={520} r={420} color={COLORS.neon2} opacity={0.16 * progress(frame, 10, 90)} />
           </AbsoluteFill>
-          <CarbonPlume frame={frame} />
+          <CarbonPlume frame={frame} fade={1 - progress(frame, 136, 160, Easing.inOut(Easing.quad))} />
         </AbsoluteFill>
       ) : null}
 
@@ -462,7 +424,7 @@ export const S08CarbonPivot: React.FC = () => {
             >
               CO<span style={{ fontSize: 48, verticalAlign: "-0.1em" }}>2</span>
             </div>
-            <BigNumber value={18} start={26} duration={36} unit="억 톤" size={230} sub="(추정)" />
+            <BigNumber value={18} from={1} start={26} duration={36} unit="억 톤" size={230} sub="(추정)" />
           </div>
           <UkCompare frame={frame} start={87} />
         </div>
