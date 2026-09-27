@@ -555,7 +555,7 @@ export const S05Train: React.FC = () => {
 
       <Caption lines={[{ text: "평균 시속 **510km** 필요 (계산)", from: 0.2, to: 3.0 }]} />
       <Caption lines={[{ text: "KTX 최고 속도로도 **33분** (계산)", from: 3.0, to: 6.2 }]} accent={COLORS.steel} />
-      <Caption lines={[{ text: "역 86개, 정차만 **42.5분** (계산)", from: 6.2, to: 9.6 }]} accent={COLORS.amber} />
+      <Caption lines={[{ text: "역 86개, 정차만 **42.5분** (계산)", from: 6.2, to: 10.2 }]} accent={COLORS.amber} />
 
       <Grain />
       <Vignette strength={0.6} />

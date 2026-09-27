@@ -152,8 +152,9 @@ const CarbonPlume: React.FC<{ frame: number; fade: number }> = ({ frame, fade })
           <stop offset="0.5" stopColor={COLORS.neon} stopOpacity={0.9} />
           <stop offset="1" stopColor={COLORS.neon} stopOpacity={0} />
         </linearGradient>
-        <radialGradient id="s08-root-haze" cx="0.5" cy="1" r="0.9">
-          <stop offset="0" stopColor={COLORS.neon2} stopOpacity={0.28} />
+        {/* r=0.5: 반타원 가장자리에 닿기 전에 투명해져 경계선이 보이지 않는다 */}
+        <radialGradient id="s08-root-haze" cx="0.5" cy="1" r="0.5">
+          <stop offset="0" stopColor={COLORS.neon2} stopOpacity={0.3} />
           <stop offset="1" stopColor={COLORS.neon2} stopOpacity={0} />
         </radialGradient>
         <filter id="s08-mote-blur" x="-20%" y="-20%" width="140%" height="140%">
@@ -349,7 +350,8 @@ export const S08CarbonPivot: React.FC = () => {
   const carbonTx = (PIN_X - plumeRootX) * pull;
   const carbonTy = (PIN_Y - plumeRootY) * pull;
 
-  const aerialOpacity = progress(frame, PIVOT, PIVOT + 16);
+  // 탄소 기둥이 사라지는 동안 빈 화면이 생기지 않도록 공중 와이드를 6프레임 먼저 깔기 시작한다
+  const aerialOpacity = progress(frame, PIVOT - 6, PIVOT + 12);
   const aerialScale = interpolate(pull, [0, 1], [3.4, 1.04]) - 0.03 * progress(frame, PIVOT + 42, CUT, Easing.linear);
   const aerialTx = (plumeRootX - PIN_X) * (1 - pull);
   const aerialTy = (plumeRootY - PIN_Y) * (1 - pull);
@@ -365,7 +367,7 @@ export const S08CarbonPivot: React.FC = () => {
   return (
     <SceneFrame fadeIn={0} fadeOut={0}>
       {/* ── 2막: 새벽 공중 와이드 ── */}
-      {frame >= PIVOT ? (
+      {frame >= PIVOT - 6 ? (
         <AbsoluteFill
           style={{
             opacity: aerialOpacity,
