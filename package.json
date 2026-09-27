@@ -2,12 +2,12 @@
   "name": "neom-line-what-if",
   "version": "0.1.0",
   "private": true,
-  "description": "사우디 네온 시티(NEOM 더 라인), 실제로 지어졌다면? — Remotion 모션그래픽 영상",
+  "description": "사우디 네옴시티 '더 라인', 진짜로 지어졌다면? — Remotion 모션그래픽 영상",
   "scripts": {
     "studio": "remotion studio src/index.ts",
     "render": "remotion render src/index.ts Main out/neom-line.mp4",
-    "render:shorts": "remotion render src/index.ts Shorts out/neom-line-shorts.mp4",
-    "still": "remotion still src/index.ts Main",
+    "thumbnail": "remotion still src/index.ts Thumbnail out/thumbnail.png",
+    "scaffold": "node tools/scaffold-scenes.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src"
   },

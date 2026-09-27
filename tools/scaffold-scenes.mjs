@@ -185,11 +185,13 @@ import { HEIGHT, WIDTH } from "./theme";
 import { Main } from "./Main";
 import { FPS, SCENES, TOTAL_FRAMES } from "./scenes";
 import * as Gallery from "./Gallery";
+import { THUMB, Thumbnail } from "./Thumbnail";
 
 export const Root: React.FC = () => {
   return (
     <>
       <Composition id="Main" component={Main} durationInFrames={TOTAL_FRAMES} fps={FPS} width={WIDTH} height={HEIGHT} />
+      <Composition id="Thumbnail" component={Thumbnail} durationInFrames={1} fps={FPS} width={THUMB.width} height={THUMB.height} />
       <Folder name="Scenes">
         {SCENES.map((s) => (
           <Composition key={s.id} id={\`Scene-\${s.name}\`} component={s.component} durationInFrames={s.durationInFrames} fps={FPS} width={WIDTH} height={HEIGHT} />
