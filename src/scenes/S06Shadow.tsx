@@ -9,7 +9,7 @@ import { Caption, DisclaimerTag, DreamLetterBox, ExperimentChip, Grain, SceneFra
  *
  * 1) 0.0–3.0s  두 500m 벽 / 200m 간격 단면(시안 와이어프레임). 태양이 호를 그리며 떠올라 고도 38.5°(동지 정오)에 고정.
  *              남쪽 벽 그림자 쐐기가 간격을 가로질러 북쪽 벽까지 → 치수 '그림자 629m', 브래킷 '간격 200m의 3배'.
- * 2) 3.0–6.6s  하단 1~12월 연간 띠: 4.7–9.5 만 따뜻하게 켜지고 나머지는 어두운 회색, 카운터 214일 (계산).
+ * 2) 3.0–6.6s  하단 1~12월 연간 띠: 4월 7일–9월 5일 만 따뜻하게 켜지고 나머지는 어두운 회색, 카운터 214일 (계산).
  *
  * 계산: 북위 28.1°, 동지 정오 고도 = 90 − 28.1 − 23.44 ≈ 38.5°. 500 ÷ tan 38.5° ≈ 629m.
  * 바닥에 정오 직사광 → 고도 ≥ atan(500/200) = 68.2° → 적위 ≥ 6.3° → 4월 7일 ~ 9월 5일 (151일), 나머지 214일.
@@ -29,9 +29,15 @@ const TOP = BASE - H; // 벽 윗면 y
 const FINAL_EL = 38.5;
 const SHADOW_M = 629;
 const SHADOW_PX = WALL_M / Math.tan((FINAL_EL * Math.PI) / 180) * PX_PER_M; // ≈ 415
-const SUN_DIST = 162;
+const SUN_DIST = 124; // 헤더/레터박스에서 떨어지도록 낮춤
+const ANG_R = 82; // 고도각 호 반지름
+const SUN_R = 14; // 태양 원반 (지름 28px)
+const SUN_HALO = 60;
+// 200m 라벨 주위 광선 마스크 박스 (12px 여유)
+const LBL200 = { x: 876 - 12, y: 168 - 12, w: 100 + 24, h: 30 + 24 };
 
 const SUN = "#ffd27a";
+const SUN_DISC = COLORS.amber; // #FFB347
 const SHADOW_FILL = "#6e6250"; // 앰버-회색
 const SHADOW_LINE = "#c9ad86";
 
@@ -85,8 +91,8 @@ const MeasureGrid: React.FC<{ opacity: number }> = ({ opacity }) => (
 
 const Canyon: React.FC<{ frame: number }> = ({ frame }) => {
   // 벽이 선으로 그려짐
-  const draw = progress(frame, 0, 24, Easing.inOut(Easing.cubic));
-  const wallFill = progress(frame, 10, 30);
+  const draw = progress(frame, -10, 20, Easing.inOut(Easing.cubic));
+  const wallFill = progress(frame, -4, 22);
   const wallPerim = 2 * (H + WALL_T);
 
   // 태양: 10° → 38.5° 호를 그리며 떠올라 고정
@@ -113,7 +119,7 @@ const Canyon: React.FC<{ frame: number }> = ({ frame }) => {
   const rays = Array.from({ length: 6 }, (_, i) => {
     const ex = L + ((i + 0.5) / 6) * G;
     const t = Math.min((R - ex) / cos, (BASE - TOP) / sin);
-    return { x1: ex - cos * 360, y1: TOP - sin * 360, x2: ex + cos * t, y2: TOP + sin * t };
+    return { x1: ex - cos * 300, y1: TOP - sin * 300, x2: ex + cos * t, y2: TOP + sin * t };
   });
 
   // 태양 궤적 호 (0° → 현재 고도)
@@ -123,7 +129,7 @@ const Canyon: React.FC<{ frame: number }> = ({ frame }) => {
   }).join(" ");
   const angArc = Array.from({ length: 12 }, (_, i) => {
     const a = rad((el * i) / 11);
-    return `${(L - 96 * Math.cos(a)).toFixed(1)},${(TOP - 96 * Math.sin(a)).toFixed(1)}`;
+    return `${(L - ANG_R * Math.cos(a)).toFixed(1)},${(TOP - ANG_R * Math.sin(a)).toFixed(1)}`;
   }).join(" ");
 
   // 그림자 629m 치수선 + 유령 투영
@@ -154,11 +160,15 @@ const Canyon: React.FC<{ frame: number }> = ({ frame }) => {
           <stop offset="0" stopColor={SUN} stopOpacity={0.34} />
           <stop offset="1" stopColor={SUN} stopOpacity={0.08} />
         </linearGradient>
-        <radialGradient id="s06-sunglow">
-          <stop offset="0" stopColor={SUN} stopOpacity={0.55} />
-          <stop offset="0.35" stopColor="#ff9a6a" stopOpacity={0.2} />
-          <stop offset="1" stopColor="#ff9a6a" stopOpacity={0} />
+        <radialGradient id="s06-sunhalo">
+          <stop offset="0" stopColor={SUN_DISC} stopOpacity={0.25} />
+          <stop offset="0.6" stopColor={SUN_DISC} stopOpacity={0.12} />
+          <stop offset="1" stopColor={SUN_DISC} stopOpacity={0} />
         </radialGradient>
+        <mask id="s06-raymask" maskUnits="userSpaceOnUse" x={0} y={0} width={1920} height={1080}>
+          <rect x={0} y={0} width={1920} height={1080} fill="#fff" />
+          <rect x={LBL200.x} y={LBL200.y} width={LBL200.w} height={LBL200.h} rx={6} fill="#000" />
+        </mask>
         <pattern id="s06-hatch" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(-38)">
           <line x1="0" y1="0" x2="0" y2="14" stroke={SHADOW_LINE} strokeOpacity={0.22} strokeWidth={2} />
         </pattern>
@@ -167,11 +177,11 @@ const Canyon: React.FC<{ frame: number }> = ({ frame }) => {
       <g opacity={recede}>
         {/* 지면 */}
         <line x1={380} x2={1600} y1={BASE} y2={BASE} stroke={COLORS.sand} strokeOpacity={0.45 * draw} strokeWidth={2} />
-        <text x={392} y={BASE - 16} fill={COLORS.muted} opacity={labelO * 0.8} fontFamily={FONTS.body} fontWeight={700} fontSize={26}>
-          남 <tspan fontFamily={FONTS.num} fontSize={20}>S</tspan>
+        <text x={392} y={BASE - 16} fill={COLORS.muted} opacity={labelO * 0.8} fontFamily={FONTS.body} fontWeight={700} fontSize={28}>
+          남 <tspan fontFamily={FONTS.num} fontSize={28}>S</tspan>
         </text>
-        <text x={1588} y={BASE - 16} textAnchor="end" fill={COLORS.muted} opacity={labelO * 0.8} fontFamily={FONTS.body} fontWeight={700} fontSize={26}>
-          북 <tspan fontFamily={FONTS.num} fontSize={20}>N</tspan>
+        <text x={1588} y={BASE - 16} textAnchor="end" fill={COLORS.muted} opacity={labelO * 0.8} fontFamily={FONTS.body} fontWeight={700} fontSize={28}>
+          북 <tspan fontFamily={FONTS.num} fontSize={28}>N</tspan>
         </text>
 
         {/* 태양 궤적과 각도 */}
@@ -181,9 +191,11 @@ const Canyon: React.FC<{ frame: number }> = ({ frame }) => {
 
         {/* 햇빛이 드는 부분 (그림자 경계 위) */}
         <polygon points={`${L},${TOP} ${R},${TOP} ${R},${hitY}`} fill="url(#s06-lit)" opacity={shadowIn} />
-        {rays.map((ry, i) => (
-          <line key={i} x1={ry.x1} y1={ry.y1} x2={ry.x2} y2={ry.y2} stroke={SUN} strokeOpacity={0.22 * sunIn} strokeWidth={1.5} />
-        ))}
+        <g mask="url(#s06-raymask)">
+          {rays.map((ry, i) => (
+            <line key={i} x1={ry.x1} y1={ry.y1} x2={ry.x2} y2={ry.y2} stroke={SUN} strokeOpacity={0.22 * sunIn} strokeWidth={1.5} />
+          ))}
+        </g>
 
         {/* 그림자 쐐기 */}
         <g opacity={shadowIn}>
@@ -232,11 +244,11 @@ const Canyon: React.FC<{ frame: number }> = ({ frame }) => {
 
         {/* 태양 */}
         <g opacity={sunIn}>
-          <circle cx={sunX} cy={sunY} r={120} fill="url(#s06-sunglow)" />
-          <circle cx={sunX} cy={sunY} r={17} fill={SUN} />
-          <circle cx={sunX} cy={sunY} r={17} fill="none" stroke="#fff4d6" strokeWidth={2} />
+          <circle cx={sunX} cy={sunY} r={SUN_HALO} fill="url(#s06-sunhalo)" />
+          <circle cx={sunX} cy={sunY} r={SUN_R + 6} fill={SUN_DISC} fillOpacity={0.25} />
+          <circle cx={sunX} cy={sunY} r={SUN_R} fill={SUN_DISC} style={{ filter: `drop-shadow(0 0 8px ${SUN_DISC})` }} />
           {locked ? (
-            <circle cx={sunX} cy={sunY} r={17 + 40 * lockPulse} fill="none" stroke={SUN} strokeOpacity={0.8 * (1 - lockPulse)} strokeWidth={2} />
+            <circle cx={sunX} cy={sunY} r={SUN_R + 40 * lockPulse} fill="none" stroke={SUN} strokeOpacity={0.8 * (1 - lockPulse)} strokeWidth={2} />
           ) : null}
         </g>
 
@@ -305,7 +317,7 @@ const Canyon: React.FC<{ frame: number }> = ({ frame }) => {
               {Math.round(SHADOW_M * dimP)}
               <tspan fontSize={40}>m</tspan>
             </text>
-            <text x={ghostEndX + 128} y={BASE - 92} fill={COLORS.muted} fontFamily={FONTS.body} fontWeight={500} fontSize={24}>
+            <text x={ghostEndX + 128} y={BASE - 92} fill={COLORS.muted} fontFamily={FONTS.body} fontWeight={500} fontSize={28}>
               (계산)
             </text>
           </g>
@@ -327,7 +339,7 @@ const Canyon: React.FC<{ frame: number }> = ({ frame }) => {
                 strokeOpacity={i === 0 ? 0.9 : 0.85}
                 strokeWidth={2}
               />
-              <text x={(x0 + x1) / 2} y={y + 44} textAnchor="middle" fill={i === 0 ? COLORS.neon : "#b9a8ff"} fontFamily={FONTS.num} fontWeight={700} fontSize={26}>
+              <text x={(x0 + x1) / 2} y={y + 44} textAnchor="middle" fill={i === 0 ? COLORS.neon : "#b9a8ff"} fontFamily={FONTS.num} fontWeight={700} fontSize={30}>
                 ×{i + 1}
               </text>
             </g>
@@ -343,14 +355,14 @@ const Canyon: React.FC<{ frame: number }> = ({ frame }) => {
           fontSize={32}
           style={{ textShadow: "0 2px 6px rgba(0,0,0,0.9)" }}
         >
-          = 간격 <tspan fontFamily={FONTS.num} fontSize={28} fill={COLORS.neon}>200m</tspan>의 3배
+          = 간격 <tspan fill={COLORS.neon}>200m</tspan>의 3배
         </text>
       </g>
     </svg>
   );
 };
 
-/** 1~12월 연간 띠: 4.7–9.5 만 켜지고 나머지는 어두운 회색, 214일 카운터 */
+/** 1~12월 연간 띠: 4월 7일–9월 5일 만 켜지고 나머지는 어두운 회색, 214일 카운터 */
 const YearStrip: React.FC<{ frame: number }> = ({ frame }) => {
   const inP = progress(frame, F_STRIP, F_STRIP + 16);
   if (inP <= 0) return null;
@@ -390,7 +402,7 @@ const YearStrip: React.FC<{ frame: number }> = ({ frame }) => {
         {/* 어두운 회색 (정오에도 바닥 그늘) */}
         <rect x={STRIP_X} y={STRIP_Y} width={dayX(Math.min(sweep, LIT_START)) - STRIP_X} height={STRIP_H} fill="#3a3f4f" />
         {sweep > LIT_END ? <rect x={dayX(LIT_END)} y={STRIP_Y} width={dayX(sweep) - dayX(LIT_END)} height={STRIP_H} fill="#3a3f4f" /> : null}
-        {/* 따뜻하게 켜짐 (4.7–9.5) */}
+        {/* 따뜻하게 켜짐 (4월 7일–9월 5일) */}
         {litShown > 0 ? (
           <rect
             x={dayX(LIT_START)}
@@ -415,33 +427,33 @@ const YearStrip: React.FC<{ frame: number }> = ({ frame }) => {
           <text
             key={i}
             x={dayX(d + MONTH_DAYS[i] / 2)}
-            y={STRIP_Y + STRIP_H + 30}
+            y={STRIP_Y + STRIP_H + 34}
             textAnchor="middle"
             fill={lit ? "#e7d3a8" : COLORS.muted}
-            fillOpacity={lit ? 0.9 : 0.7}
-            fontFamily={FONTS.num}
-            fontWeight={500}
-            fontSize={20}
+            fillOpacity={lit ? 0.95 : 0.8}
+            fontFamily={FONTS.body}
+            fontWeight={700}
+            fontSize={28}
           >
             {i + 1}
           </text>
         );
       })}
-      <text x={STRIP_X - 18} y={STRIP_Y + STRIP_H + 30} textAnchor="end" fill={COLORS.muted} fillOpacity={0.7} fontFamily={FONTS.body} fontWeight={700} fontSize={20}>
+      <text x={STRIP_X - 18} y={STRIP_Y + STRIP_H + 34} textAnchor="end" fill={COLORS.muted} fillOpacity={0.8} fontFamily={FONTS.body} fontWeight={700} fontSize={28}>
         월
       </text>
-      {/* 4.7 – 9.5 */}
+      {/* 4월 7일 – 9월 5일 */}
       <g opacity={litLabel}>
         <line x1={dayX(LIT_START)} x2={dayX(LIT_START)} y1={STRIP_Y - 22} y2={STRIP_Y - 4} stroke={SUN} strokeWidth={1.5} />
         <line x1={dayX(LIT_END)} x2={dayX(LIT_END)} y1={STRIP_Y - 22} y2={STRIP_Y - 4} stroke={SUN} strokeWidth={1.5} />
-        <line x1={dayX(LIT_START)} x2={(dayX(LIT_START) + dayX(LIT_END)) / 2 - 96} y1={STRIP_Y - 13} y2={STRIP_Y - 13} stroke={SUN} strokeOpacity={0.5} strokeWidth={1.5} />
-        <line x1={(dayX(LIT_START) + dayX(LIT_END)) / 2 + 96} x2={dayX(LIT_END)} y1={STRIP_Y - 13} y2={STRIP_Y - 13} stroke={SUN} strokeOpacity={0.5} strokeWidth={1.5} />
-        <text x={(dayX(LIT_START) + dayX(LIT_END)) / 2} y={STRIP_Y - 17} textAnchor="middle" fill={SUN} fontFamily={FONTS.num} fontWeight={700} fontSize={28}>
-          4.7 – 9.5
+        <line x1={dayX(LIT_START)} x2={(dayX(LIT_START) + dayX(LIT_END)) / 2 - 138} y1={STRIP_Y - 13} y2={STRIP_Y - 13} stroke={SUN} strokeOpacity={0.5} strokeWidth={1.5} />
+        <line x1={(dayX(LIT_START) + dayX(LIT_END)) / 2 + 138} x2={dayX(LIT_END)} y1={STRIP_Y - 13} y2={STRIP_Y - 13} stroke={SUN} strokeOpacity={0.5} strokeWidth={1.5} />
+        <text x={(dayX(LIT_START) + dayX(LIT_END)) / 2} y={STRIP_Y - 17} textAnchor="middle" fill={SUN} fontFamily={FONTS.body} fontWeight={700} fontSize={30}>
+          4월 7일 – 9월 5일
         </text>
       </g>
       {/* 카운터 */}
-      <text x={STRIP_X + STRIP_W + 44} y={STRIP_Y - 6} fill={COLORS.muted} fontFamily={FONTS.body} fontWeight={700} fontSize={24}>
+      <text x={STRIP_X + STRIP_W + 44} y={STRIP_Y - 6} fill={COLORS.muted} fontFamily={FONTS.body} fontWeight={700} fontSize={28}>
         한낮 그늘
       </text>
       <text
@@ -457,7 +469,7 @@ const YearStrip: React.FC<{ frame: number }> = ({ frame }) => {
         <tspan fontFamily={FONTS.body} fontWeight={700} fontSize={40} dx={6}>
           일
         </tspan>
-        <tspan fontFamily={FONTS.body} fontWeight={500} fontSize={24} fill={COLORS.muted} dx={10}>
+        <tspan fontFamily={FONTS.body} fontWeight={500} fontSize={28} fill={COLORS.muted} dx={10}>
           (계산)
         </tspan>
       </text>
@@ -470,18 +482,16 @@ export const S06Shadow: React.FC = () => {
   // 이전 장면의 휘익 푸시를 받는 짧은 진입 + 느린 카메라 드리프트
   const push = progress(frame, 0, 18, Easing.out(Easing.cubic));
   const drift = interpolate(frame, [0, 198], [1, 1.025]);
-  const bgIn = progress(frame, 0, 14);
 
   return (
-    <SceneFrame fadeIn={6} fadeOut={12}>
+    <SceneFrame fadeIn={0} fadeOut={0}>
       {/* 황혼 하늘: 오프블랙 + 태양 쪽 따뜻한 번짐 + 수평선 보라 */}
       <AbsoluteFill
         style={{
-          opacity: bgIn,
           background: `radial-gradient(ellipse 900px 560px at 700px 170px, rgba(255,154,106,0.13), rgba(255,154,106,0) 70%), linear-gradient(180deg, ${COLORS.bg} 0%, #0a0a1f 45%, #16122e 62%, ${COLORS.bg} 78%)`,
         }}
       />
-      <MeasureGrid opacity={0.9 * bgIn} />
+      <MeasureGrid opacity={0.9} />
       <AbsoluteFill style={{ transform: `translateX(${(1 - push) * 70}px) scale(${drift})`, transformOrigin: "960px 470px" }}>
         <Canyon frame={frame} />
       </AbsoluteFill>
@@ -490,11 +500,11 @@ export const S06Shadow: React.FC = () => {
       <Grain />
       <Vignette strength={0.6} />
       <DreamLetterBox />
-      <ExperimentChip index="실험 3" title="협곡의 햇빛" />
-      <DisclaimerTag />
-      {/* 연속된 두 줄은 따로 렌더해 같은 자리에서 교차 페이드 (한 Caption 안에선 다음 줄이 미리 자리를 차지해 윗줄이 튄다) */}
+      <ExperimentChip index="실험 3" title="협곡의 햇빛" start={-6} end={100000} />
+      <DisclaimerTag start={-12} />
+      {/* 두 번째 줄은 핸드오프(+10프레임) 동안에도 선명하게 남도록 to 를 장면 끝 너머로 둔다. 연속된 두 줄은 따로 렌더해 같은 자리에서 교차 페이드 (한 Caption 안에선 다음 줄이 미리 자리를 차지해 윗줄이 튄다) */}
       <Caption lines={[{ text: "겨울 정오, 벽 그림자 629m (계산)", from: 0.2, to: 3.0 }]} />
-      <Caption lines={[{ text: "한낮 해가 안 드는 날 214일 (계산)", from: 3.0, to: 6.6 }]} />
+      <Caption lines={[{ text: "한낮 해가 안 드는 날 214일 (계산)", from: 3.0, to: 7.3 }]} />
       <SourceTag label="계산" text="북위 28.1° · 벽 500m · 간격 200m · 동서축 이상화" position="bottomRight" start={10} />
       <SourceTag label="네옴 측" text="그늘은 공공 공간 냉방 설계 · 디진 2022.08" position="bottomLeft" start={96} />
     </SceneFrame>

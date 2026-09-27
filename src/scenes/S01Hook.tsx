@@ -2,12 +2,12 @@ import React, { useMemo } from "react";
 import { AbsoluteFill, Easing, interpolate, random, useCurrentFrame } from "remotion";
 import { COLORS, FONTS, HEIGHT, WIDTH } from "../theme";
 import { clamp01, progress } from "../utils/anim";
-import { DreamLetterBox, Flash, Glitch, Grain, LineAerial, NeonText, Scanlines, SceneFrame, Vignette } from "../components";
+import { DreamLetterBox, Glitch, Grain, LineAerial, NeonText, Scanlines, SceneFrame, Vignette } from "../components";
 
 /**
  * s01-hook — 첫 1초에 숫자 하나(170km)와 이미지 하나(밤 사막을 가로지르는 빛의 선)로 붙잡는다.
  * '네온 시티?'(마젠타, 말장난) → 글리치 → 시안 '사우디 네옴(NEOM) '더 라인'' → 어원 → 질문형 제목.
- * 0s → 7s (210 frames). 끝: whoosh push (가속 푸시인 + 페이드, 레터박스는 유지).
+ * 0s → 7s (210 frames). 끝의 whoosh push 는 Main(HandoffContext)이 담당 — 여기서는 끝까지 전부 보이게 유지.
  */
 
 // ── 타이밍 (프레임, 장면 기준) ────────────────────────────────
@@ -19,10 +19,10 @@ const F_NEON = 27; // 0.9s '네온 시티?'
 const F_FLIP = 78; // 2.6s 글리치 → 네옴
 const F_GL0 = 73;
 const F_GL1 = 86;
-const F_ETY0 = 84; // 2.8s 어원
-const F_ETY1 = 138; // 4.6s
+const F_ETY0 = 83; // 2.75s 어원 (4프레임 페이드인)
+const F_ETY1 = 139; // 4.6s 제목이 자리를 넘겨받음
 const F_TITLE = 138; // 4.6s 제목 타이핑
-const F_OUT0 = 192; // whoosh push 시작
+const TITLE_SPEED = 1.5; // 음절당 1.5프레임 → 약 5.1s 에 완성
 const F_END = 210;
 
 // ── 궤도 시점 지면(3D 기울임) ─────────────────────────────────
@@ -201,12 +201,10 @@ const LineSpill: React.FC<{ draw: number }> = ({ draw }) => {
 const World: React.FC = () => {
   const frame = useCurrentFrame();
   const draw = progress(frame, F_DRAW0, F_DRAW1, Easing.inOut(Easing.cubic));
-  // 느린 푸시인 → 끝에서 가속 푸시(휘익)
-  const drift = interpolate(frame, [0, F_OUT0], [1.0, 1.06], { extrapolateRight: "clamp" });
-  const push = interpolate(frame, [F_OUT0, F_END], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.in(Easing.cubic) });
-  const scale = drift * (1 + push * 0.55);
+  // 느린 푸시인 (핸드오프 10프레임 동안에도 부드럽게 이어짐)
+  const scale = interpolate(frame, [0, F_END], [1.0, 1.07]);
   const lift = -14 * (frame / F_END);
-  const opacity = progress(frame, F_FLASH, F_FLASH + 6) * (1 - progress(frame, F_OUT0 + 6, F_END - 1, Easing.in(Easing.quad)));
+  const opacity = progress(frame, F_FLASH, F_FLASH + 6);
   const c = project((LINE.x1 + LINE.x2) / 2, (LINE.y1 + LINE.y2) / 2);
   return (
     <AbsoluteFill style={{ opacity, transform: `translateY(${lift}px) scale(${scale})`, transformOrigin: `${c.x}px ${c.y - 120}px` }}>
@@ -274,7 +272,7 @@ const TypeTitle: React.FC<{ text: string; start: number; speed: number }> = ({ t
   return (
     <div style={{ fontFamily: FONTS.display, fontSize: 138, color: COLORS.ink, lineHeight: 1.1, whiteSpace: "nowrap", letterSpacing: -1 }}>
       {chars.map((ch, i) => {
-        const p = progress(frame, start + i * speed, start + i * speed + 5);
+        const p = progress(frame, start + i * speed, start + i * speed + Math.max(3, speed * 2));
         return (
           <React.Fragment key={i}>
             <span
@@ -337,18 +335,15 @@ const Texts: React.FC = () => {
   const nameSettle = progress(frame, F_FLIP, F_FLIP + 18, Easing.out(Easing.cubic));
   const nameGlow = 1 + 0.8 * (1 - progress(frame, F_FLIP, F_FLIP + 24));
 
-  const etyIn = progress(frame, F_ETY0, F_ETY0 + 14);
-  const etyOut = 1 - progress(frame, F_ETY1 - 12, F_ETY1, Easing.in(Easing.cubic));
+  const etyIn = progress(frame, F_ETY0, F_ETY0 + 4, Easing.out(Easing.cubic));
+  const etyOut = 1 - progress(frame, F_ETY1 - 5, F_ETY1, Easing.in(Easing.quad));
   const ety = Math.min(etyIn, etyOut);
 
   // 가독 배경띠
   const band = progress(frame, F_NEON - 6, F_NEON + 12) * 0.85;
 
-  // 휘익 푸시 아웃
-  const out = progress(frame, F_OUT0, F_END - 2, Easing.in(Easing.cubic));
-
   return (
-    <AbsoluteFill style={{ opacity: 1 - out, transform: `scale(${1 + out * 0.22})`, transformOrigin: `50% ${(NAME_Y + SUB_Y) / 2}px` }}>
+    <AbsoluteFill>
       <div
         style={{
           position: "absolute",
@@ -371,7 +366,7 @@ const Texts: React.FC = () => {
         {showName ? (
           <Center y={NAME_Y} style={{ transform: `translateY(-50%) scale(${1.06 - 0.06 * nameSettle})` }}>
             <NeonText color={COLORS.neon} size={100} strength={nameGlow * 0.9}>
-              사우디 <span style={{ color: COLORS.neon }}>네옴(NEOM)</span> &apos;더 라인&apos;
+              사우디 <span style={{ color: COLORS.neon }}>네옴(NEOM)</span> ‘더 라인’
             </NeonText>
           </Center>
         ) : null}
@@ -384,7 +379,7 @@ const Texts: React.FC = () => {
               style={{
                 fontFamily: FONTS.body,
                 fontWeight: 700,
-                fontSize: 58,
+                fontSize: 74,
                 color: COLORS.ink,
                 letterSpacing: -0.5,
                 textShadow: "0 2px 8px rgba(0,0,0,0.9)",
@@ -402,10 +397,29 @@ const Texts: React.FC = () => {
       ) : null}
       {frame >= F_TITLE ? (
         <Center y={SUB_Y + 30}>
-          <TypeTitle text="진짜로 지어졌다면?" start={F_TITLE} speed={3} />
+          <TypeTitle text="진짜로 지어졌다면?" start={F_TITLE} speed={TITLE_SPEED} />
         </Center>
       ) : null}
     </AbsoluteFill>
+  );
+};
+
+/** 점화 섬광: 선의 시작점(투영 좌표)에 맺히는 흰 코어 → 400px 에서 투명. 가장자리는 검게 유지. */
+const FLASH_LEN = 4;
+const IgnitionFlash: React.FC = () => {
+  const frame = useCurrentFrame();
+  if (frame < F_FLASH || frame > F_FLASH + FLASH_LEN) return null;
+  const o = 1 - progress(frame, F_FLASH, F_FLASH + FLASH_LEN, Easing.out(Easing.exp));
+  const p = project(LINE.x1, LINE.y1);
+  return (
+    <AbsoluteFill
+      style={{
+        pointerEvents: "none",
+        mixBlendMode: "screen",
+        opacity: o,
+        background: `radial-gradient(circle 400px at ${p.x}px ${p.y}px, rgba(255,255,255,1) 0%, rgba(223,252,255,0.85) 14%, rgba(56,242,255,0.35) 45%, rgba(56,242,255,0) 100%)`,
+      }}
+    />
   );
 };
 
@@ -418,7 +432,7 @@ export const S01Hook: React.FC = () => {
       <Scanlines opacity={0.06} />
       <Grain />
       <Vignette strength={0.62} />
-      <Flash at={F_FLASH} length={9} peak={0.85} color="#dffcff" />
+      <IgnitionFlash />
       {/* 0.0s 검은 화면 */}
       {frame < F_FLASH ? <AbsoluteFill style={{ background: "#000" }} /> : null}
       <DreamLetterBox animateIn />
