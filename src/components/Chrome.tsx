@@ -58,7 +58,7 @@ export const ExperimentChip: React.FC<ChipProps> = ({ index, title, start = 0, e
           {index}
         </div>
       ) : null}
-      <div style={{ fontFamily: FONTS.display, fontSize: 44, color: COLORS.ink, textShadow: "0 2px 6px rgba(0,0,0,0.8)" }}>{title}</div>
+      <div style={{ fontFamily: FONTS.display, fontSize: 44, color: index ? COLORS.ink : color, textShadow: "0 2px 6px rgba(0,0,0,0.8)" }}>{title}</div>
     </div>
   );
 };
