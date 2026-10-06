@@ -1,6 +1,7 @@
 // 3D 화면 그리기: 그림자 지도 → 하늘 → 땅·나무·풀·먼 산 → 전사(외곽선) → 물 → 꽃가루 → (1인칭) 손과 검 → 후처리
 
 // 테마별 빛과 하늘 (밝기 숫자는 1보다 커도 됨: 마지막에 화면에 맞게 눌러 줌)
+const MOON_DIR = V3.normalize([0.48, 0.58, 0.66]);   // 달이 떠 있는 방향 (동남쪽 하늘, 밤엔 이쪽에서 달빛이 비춤)
 const LIGHTING = {
   // 맑은 낮 숲 (젤다 야숨풍): 부드러운 햇빛, 밝은 그늘, 옅은 하늘색 공기, 파스텔 연두
   forest: {
@@ -28,8 +29,9 @@ const LIGHTING = {
     split: 0.7,                                 // 그늘은 푸르게·밝은 곳은 따뜻하게 나누는 정도 (기본 1)
     lift: [0.015, 0.02, 0.03],                  // 어두운 곳을 하늘빛으로 살짝 띄움 (흐린 물감 느낌)
     aoStrength: 0.6,                            // 주변 가림 세기 (기본 0.85)
-    haze: [0.17, 0.25, 0.42, 0.007],            // 공기 원근감: 먼 언덕·산이 잠기는 푸른 공기 색 + 짙기
-    fogScale: 0.85,                             // 가까운 안개는 조금 옅게 (먼 곳은 공기 원근감이 맡음)
+    haze: [0.17, 0.25, 0.42, 0.0055],           // 공기 원근감: 먼 언덕·산이 잠기는 푸른 공기 색 + 짙기
+    hazeStart: 30,                              // 이 거리(m)부터 먼 공기가 덮임 (20~60m 나무·집은 제 색을 지킴. 예전 20)
+    fogScale: 0.72,                             // 가까운 안개는 조금 옅게 (먼 곳은 공기 원근감이 맡음. 예전 0.85)
     farFog: 0.7,                                // 먼 산·언덕 모델의 하늘색 안개 배율 (대신 푸른 공기 색에 잠김)
     mountainScale: 0.55,                        // 먼 산맥 높이 배율 (지평선 위로 낮게 깔리게)
     // 화면 마무리 (야숨풍: 밝고 뽀얀 공기, 크림색 밝은 곳, 올리브빛 차분한 그늘, 먼 곳은 물감처럼 부드럽게)
@@ -43,14 +45,34 @@ const LIGHTING = {
     bloomScreen: 1,                             // 빛 번짐·빛줄기를 스크린으로 섞음 (하얗게 타지 않고 뽀얗게)
     bloomTint: [1.0, 0.97, 0.9],                // 빛 번짐 색 (따뜻한 햇빛)
     veil: [0.66, 0.74, 0.8],                    // 몇 걸음 앞부터 덮이는 뽀얀 공기 색 (화면 밝기 기준, 옅은 푸른 회색)
-    veilK: [5, 0.022, 0.35],                    // 공기: 시작 거리(m) · 짙어지는 빠르기 · 최대 짙기 (전사는 또렷, 뒤 숲은 뽀얗게)
-    dof: [30, 130, 0.5],                        // 먼 곳 흐림: 시작 거리(m) · 가장 흐린 거리(m) · 최대 섞는 정도 (CONFIG.graphics.softFocus)
+    veilK: [10, 0.014, 0.31],                   // 공기: 시작 거리(m) · 짙어지는 빠르기 · 최대 짙기 (전사·가운데 숲은 또렷, 먼 숲은 뽀얗게. 예전 [5, 0.022, 0.35])
+    dof: [40, 150, 0.45],                       // 먼 곳 흐림: 시작 거리(m) · 가장 흐린 거리(m) · 최대 섞는 정도 (CONFIG.graphics.softFocus. 예전 [30, 130, 0.5])
     // 캐릭터 그림체 (야숨풍). 없는 값은 예전 그대로 (useWorld의 기본값)
     // soft 명암 경계 너비, shade 그늘 밝기, lit 밝은 면 밝기, sky 그늘이 하늘·땅빛을 받는 정도,
     // rim 윤곽 빛, grad 밝은 면의 둥근 그러데이션, metal 금속 대비, sheer 망토에 비치는 햇빛
     cel: { soft: 0.11, shade: 1.12, lit: 1.8, sky: 0.5, rim: 0.3, grad: 0.12, metal: 0.55, sheer: 0.3 },
     outline: 0.8,                               // 캐릭터 외곽선 두께 배율 (기본 1)
     outlineTone: [0.58, 1.0],                   // 외곽선 색: [그 부분 색을 몇 배로 어둡게, 그 색을 섞는 비율 (나머지는 검정)] (기본 [0.3, 0.8])
+    // 땅·물 (지형 작업): 마른 풀밭은 주황 대신 옅은 밀짚빛, 양도 줄임. 구역별 양은 map.js BIOMES의 gold
+    gold: 0.55,                                 // 마른 풀밭 양 (1이면 예전만큼)
+    goldHue: [[1.3, 1.1, 0.42], [1.5, 1.08, 0.34]],   // 마른 풀밭 땅 색 [옅은 쪽, 짙은 쪽] (풀빛 밝기에 곱함)
+    water: { murk: [0.07, 0.08, 0.035], murkDeep: [0.025, 0.03, 0.014], duckweed: [0.1, 0.16, 0.035] },   // 늪 물: 얕은 곳 흐린 올리브, 깊은 곳 짙은 갈색, 개구리밥
+    // ---- 오픈월드의 하루·구역 공기 (atmos.js가 시간·구역에 따라 섞어 씀). 아래 값이 '맑은 낮' 그대로의 모습 ----
+    grade: [1, 1, 1],                           // 화면 전체 색 보정 (낮은 그대로)
+    mist: [0.3, 1.6],                           // 낮은 곳 물안개: [짙기, 높이에 따라 옅어지는 빠르기] (늪지는 짙고 높게)
+    cloudRays: 0,                               // 볕 받은 구름에서도 빛줄기가 나옴 (노을·새벽만)
+    celAmbient: 1,                              // 캐릭터 그늘 밝기
+    particleGain: 1,                            // 떠다니는 빛 알갱이(꽃가루·반딧불) 밝기 배율
+    night: 0,                                   // 밤인 정도 (0 낮 ~ 1 밤): 별·달·반딧불·밤에만 켜지는 불빛
+    moonDir: MOON_DIR,                          // 달 방향 (하늘에 달을 그리는 곳)
+    sunDisc: 1,                                 // 하늘에 해를 그리는 정도 (어스름·밤엔 0)
+    lampBoost: 1,                               // 등불·모닥불 밝기 배율 (밤엔 세게)
+    lampRange: 1,                               // 등불·모닥불이 닿는 거리 배율 (밤엔 넓게)
+    glowK: 1,                                   // 스스로 빛나는 부분(창문·등불 유리)의 밝기 배율
+    fireflies: 0.55,                            // 밤 반딧불 양 (0~1, 구역마다 ZONE_AIR 배율: 늪지·초원은 많게, 마을은 적게)
+    beams: 0,                                   // 나무 사이로 비스듬히 내리는 햇살 기둥 (북쪽 숲에서만 ZONE_AIR가 켬)
+    beamColor: [1.0, 0.9, 0.62],                // 햇살 기둥 색 (먼지 낀 금빛)
+    cloudShadow: [0.024, 0.46, 0.61, 0.38],     // 땅 위를 흘러가는 구름 그림자: [얼룩 크기(작을수록 큰 얼룩), 시작, 끝(경계 부드러움), 짙기] (예전 [0.015, 0.5, 0.68, 0.3])
   },
   // 노을 진 저녁 숲: 낮게 깔린 주황빛 해, 보랏빛 하늘, 분홍빛 구름, 반딧불
   dusk: {
@@ -69,10 +91,13 @@ const LIGHTING = {
     rays: 1.5,
     particles: true,
     particleColor: [0.8, 1.0, 0.35],            // 반딧불 (연둣빛)
+    particleGain: 1.6,                          // 반딧불은 더 밝게
     grade: [1.1, 0.86, 0.84],                   // 화면 전체를 주홍빛 저녁 색으로
     cel: { soft: 0.07, sky: 0.35, sheer: 0.5 }, // 캐릭터: 그늘은 보랏빛 하늘을 띠고, 해를 향해 걸으면 망토가 노을빛으로 비침
     // 야숨풍으로 조금 부드럽게 (노을빛은 그대로 두고, 금빛 풀이 새빨갛게 타지 않게·역광 그늘이 새까맣지 않게)
     gold: 0.4,                                  // 금빛 마른 풀밭 양 (숲의 0.4배)
+    goldHue: [[1.55, 1.0, 0.1], [2.0, 0.84, 0.06]],   // 마른 풀밭 땅 색: 황록빛 ~ 주황빛 금색 (예전 그대로)
+    goldTuftTint: [1.06, 0.76, 0.5],            // 마른 풀 포기 색 배율 (풀 모델은 낮의 밀짚빛이라 노을에선 주황빛으로 되돌림)
     cloudRays: 1,                               // 해가 산 너머에 걸려 있어 볕 받은 구름에서도 빛줄기가 나옴
     terminator: 0.32,                           // 명암 경계를 조금 부드럽게
     shadeDesat: 0.25,                           // 그늘 색을 조금 빼서 차분하게
@@ -105,7 +130,148 @@ const LIGHTING = {
   },
 };
 
+// ---------- 오픈월드의 하루 (atmos.js가 시각에 따라 이 값들을 차례로 섞음) ----------
+// 모두 '맑은 낮(forest)' 값을 물려받고 바뀌는 값만 적음 → 섞을 때 빠진 값 때문에 갑자기 튀는 일이 없음
+// 해 방향(sunDir)은 그림자가 기어가듯 떨리지 않게 atmos.js가 몇 초에 한 번씩 끊어서 옮김
+// skySun은 하늘에 그리는 해(원반·노을빛·구름 밝은 쪽) 자리: 빛 방향은 해 진 뒤 달 쪽으로 올라가지만,
+// 하늘의 해는 지평선 아래로 계속 지고(노을) 아래에서 떠오름(새벽) → '진 해가 다시 떠오르는' 모습이 없음
+const DAY = LIGHTING.forest;
+DAY.skySun = DAY.sunDir;   // 낮에는 빛 방향과 같음
+const dayPreset = (over, cel) => Object.assign({}, DAY, over, { cel: Object.assign({}, DAY.cel, cel) });
+const SUNSET_DIR = V3.normalize([-0.88, 0.2, 0.42]);   // 서쪽 지평선 가까이 낮은 해
+const DAWN_DIR = V3.normalize([-0.3, 0.21, 0.93]);     // 새벽 해 (남쪽 낮게: 낮 해 자리까지 조금만 움직이도록)
+const SET_SKY = V3.normalize([-0.88, -0.06, 0.42]);    // 어스름의 하늘 해 자리: 서쪽 지평선 바로 아래 (서쪽 하늘에 노을빛이 남음)
+const RISE_SKY = V3.normalize([-0.3, -0.06, 0.93]);    // 새벽 전 하늘 해 자리: 새벽 해 바로 아래 (그쪽 하늘부터 밝아짐)
+// 해 질 녘: 복숭앗빛 하늘, 역광에 분홍빛으로 물드는 산, 길게 늘어진 그림자
+LIGHTING.sunset = dayPreset({
+  sunDir: SUNSET_DIR, skySun: SUNSET_DIR,
+  sunColor: [2.0, 1.2, 0.6],
+  skyColor: [0.3, 0.27, 0.42],
+  groundColor: [0.2, 0.15, 0.09],
+  fogColor: [0.95, 0.66, 0.55],
+  zenith: [0.16, 0.2, 0.5],
+  cloudLit: [1.35, 0.82, 0.58],
+  cloudShade: [0.34, 0.26, 0.4],
+  rays: 1.3, cloudRays: 1,
+  particleColor: [1.0, 0.8, 0.5],
+  saturation: 1.1,
+  grade: [1.05, 0.96, 0.92],
+  veil: [0.8, 0.68, 0.64],
+  haze: [0.36, 0.3, 0.42, 0.006],
+  highTint: [1.05, 0.97, 0.84],
+  bloomTint: [1.0, 0.88, 0.72],
+  lampBoost: 1.2, glowK: 1.15,
+  mist: [0.4, 1.4],
+}, { sheer: 0.45 });
+// 어스름: 해는 졌고 하늘은 푸르스름한 보랏빛. 빛이 가장 약한 때에 빛 방향을 달 쪽으로 옮김
+LIGHTING.twilight = dayPreset({
+  sunDir: V3.normalize(V3.add(SUNSET_DIR, MOON_DIR)),
+  skySun: SET_SKY,                     // 하늘의 해는 지평선 아래로 (빛 방향만 달 쪽으로)
+  sunColor: [0.35, 0.25, 0.35],
+  skyColor: [0.12, 0.12, 0.23],
+  groundColor: [0.05, 0.045, 0.05],
+  fogColor: [0.33, 0.28, 0.45],
+  zenith: [0.06, 0.07, 0.2],
+  cloudLit: [0.24, 0.17, 0.26],        // 해 진 쪽 구름 밑은 옅은 분홍 (화면에선 밝기가 크게 올라가므로 낮게)
+  cloudShade: [0.07, 0.06, 0.12],
+  rays: 0, cloudRays: 0,
+  particleColor: [1.05, 1.3, 0.5],
+  particleGain: 1.3,
+  saturation: 0.95, contrast: 1.0,
+  curve: [0.09, 0.05, 0],
+  lift: [0.01, 0.012, 0.028],
+  grade: [0.9, 0.92, 1.08],
+  veil: [0.3, 0.27, 0.38],
+  haze: [0.14, 0.13, 0.25, 0.0065],
+  shadeTint: [0.98, 0.98, 1.04], highTint: [1.02, 0.97, 0.9],
+  bloomKnee: [0.42, 0.85], bloomScale: 1.5, bloomTint: [1.0, 0.9, 0.78],
+  leafGlow: 0.04,
+  celAmbient: 0.65,
+  mist: [0.45, 1.25],
+  night: 0.5, sunDisc: 0,
+  lampBoost: 1.2, lampRange: 1.0, glowK: 1.35,
+  cloudShadow: [0.024, 0.46, 0.61, 0.2],
+}, { lit: 1.2, shade: 1.0, rim: 0.35 });
+// 달밤: 짙은 남색 하늘에 별과 달. 달빛은 푸르고 어둡지만 전사·적은 또렷하게, 등불·모닥불은 따뜻하게 빛남
+LIGHTING.night = dayPreset({
+  sunDir: MOON_DIR,                     // 밤에는 달빛이 그림자를 만듦
+  skySun: MOON_DIR,                     // 구름도 달 쪽이 밝음
+  sunColor: [0.17, 0.23, 0.42],         // 달빛 (빨강을 0.1보다 낮추면 캐릭터 색 계산이 튐)
+  skyColor: [0.05, 0.07, 0.14],
+  groundColor: [0.018, 0.025, 0.03],
+  fogColor: [0.05, 0.08, 0.16],
+  zenith: [0.01, 0.017, 0.06],
+  cloudLit: [0.045, 0.055, 0.09],       // 구름은 어두운 회색 (달 쪽 가장자리만 은빛. 화면에선 밝기가 크게 올라가므로 아주 낮게)
+  cloudShade: [0.012, 0.016, 0.03],
+  rays: 0, cloudRays: 0,
+  particleColor: [1.1, 1.5, 0.45],      // 반딧불 (연둣빛)
+  particleGain: 1.6,
+  saturation: 0.8, contrast: 1.02,
+  curve: [0.07, 0.04, 0],
+  lift: [0.006, 0.01, 0.025],
+  grade: [0.9, 0.95, 1.1],              // 화면 전체를 푸른 달빛 색으로 (너무 세면 등불의 주황빛까지 바래짐)
+  veil: [0.07, 0.1, 0.17],              // 뽀얀 공기도 어둡게 (밝으면 화면이 우윳빛으로 뜸)
+  haze: [0.03, 0.05, 0.11, 0.007],
+  shadeTint: [0.97, 1.0, 1.06], highTint: [1.0, 0.97, 0.9],
+  darkDesat: 0.25,
+  bloomKnee: [0.35, 0.75], bloomScale: 1.7, bloomTint: [1.0, 0.9, 0.75],   // 등불·창문·반딧불이 번지게
+  leafGlow: 0.02,
+  celAmbient: 0.42,
+  mist: [0.45, 1.2],
+  night: 1, sunDisc: 0,
+  lampBoost: 1.5, lampRange: 1.05, glowK: 1.6,   // 등불·모닥불: 둘레만 따뜻하게 (너무 넓으면 광장 전체가 낮처럼 밝아짐)
+  cloudShadow: [0.024, 0.46, 0.61, 0.15],
+}, { lit: 0.75, shade: 0.95, rim: 0.4 });
+// 새벽 전 어스름: 달에서 새벽 해 쪽으로 빛 방향을 옮기는 때 (보랏빛에서 분홍빛으로)
+LIGHTING.predawn = dayPreset(Object.assign({}, LIGHTING.twilight, {
+  sunDir: V3.normalize(V3.add(MOON_DIR, DAWN_DIR)),
+  skySun: RISE_SKY,                     // 하늘의 해는 새벽 해 자리 바로 아래에서 떠오를 준비
+  fogColor: [0.36, 0.3, 0.46],
+  cloudLit: [0.28, 0.2, 0.28],
+  grade: [0.92, 0.92, 1.06],
+}), LIGHTING.twilight.cel);
+// 새벽: 분홍빛 안개, 옅은 복숭앗빛 구름, 낮은 곳에 물안개
+LIGHTING.dawn = dayPreset({
+  sunDir: DAWN_DIR, skySun: DAWN_DIR,
+  sunColor: [1.55, 1.02, 0.88],
+  skyColor: [0.34, 0.31, 0.42],
+  groundColor: [0.2, 0.17, 0.13],
+  fogColor: [0.9, 0.66, 0.78],
+  zenith: [0.2, 0.27, 0.55],
+  cloudLit: [1.3, 0.88, 0.86],
+  cloudShade: [0.3, 0.27, 0.4],
+  rays: 1.2, cloudRays: 1,
+  particleColor: [1.0, 0.85, 0.7],
+  saturation: 1.08,
+  grade: [1.04, 0.95, 1.02],
+  veil: [0.84, 0.7, 0.78],
+  haze: [0.42, 0.32, 0.48, 0.0065],
+  highTint: [1.04, 0.98, 0.9],
+  bloomTint: [1.0, 0.9, 0.85],
+  mist: [0.55, 1.0],
+  lampBoost: 1.2, glowK: 1.15,
+}, { sheer: 0.4 });
+
+// ---------- 구역마다 다른 공기 (atmos.js가 전사가 있는 구역 쪽으로 몇 초에 걸쳐 섞음) ----------
+// 숫자는 위 하루 값에 곱하는 배율 (1 = 그대로, 배열은 칸마다). add는 더하는 값. 마을·초원은 지금 모습 그대로
+// (지을 때 한 번만 읽는 gold·mountainScale 같은 값은 여기 넣지 말 것)
+const ZONE_AIR = {
+  // 남쪽 늪지: 희뿌옇고 푸르스름한 초록 물안개가 낮게 깔리고, 먼 나무는 흐릿하게
+  marsh: { fogScale: 1.55, veil: [0.94, 0.98, 0.84], veilK: [0.8, 1.5, 1.45], fogColor: [1.05, 1.05, 0.82], haze: [1.15, 1.1, 0.75, 1.35],
+    skyColor: [1, 1.04, 0.92], sunColor: [0.92, 0.92, 0.9], grade: [0.97, 1.02, 0.95], saturation: 0.95, mist: [1.9, 0.6], dof: [0.8, 0.85, 1.2], fireflies: 1.7 },
+  // 서쪽 바위 언덕: 맑고 투명한 공기, 멀리까지 또렷하게
+  hills: { fogScale: 0.65, veilK: [1.4, 0.7, 0.6], haze: [1, 1, 1, 0.7], sunColor: [1.05, 1.04, 1.02], contrast: 1.03, saturation: 1.05,
+    dof: [1.3, 1.2, 0.6], mist: [0.5, 1], fireflies: 0.6 },
+  // 북쪽 숲: 잎 그늘 아래 어둑하고 푸른 초록빛, 잎 사이로 비치는 빛과 빛줄기는 세게 + 비스듬한 햇살 기둥
+  woods: { skyColor: [0.74, 0.82, 0.74], groundColor: [0.66, 0.74, 0.6], sunColor: [0.9, 0.92, 0.84], leafGlow: 1.6, veil: [0.84, 0.95, 0.84],
+    veilK: [0.9, 1.2, 1.25], aoStrength: 1.25, rays: 1.6, grade: [0.94, 0.99, 0.92], mist: [1.3, 0.8], add: { beams: 1.4 } },
+  meadow: { fireflies: 1.6 },   // 동쪽 초원: 밤에 반딧불이 많음
+  village: { fireflies: 0.5 },  // 마을: 반딧불은 조금만
+};
+
 const IDENTITY = M4.identity();
+const MIST_DEFAULT = [0.3, 1.6];                         // 물안개 기본값 (테마에 mist가 없을 때 = 예전 그대로)
+const CLOUD_SHADOW_DEFAULT = [0.015, 0.5, 0.68, 0.3];    // 구름 그림자 기본값 (예전 그대로)
 const TREE_LOD = 30;   // 이 거리(m)보다 먼 구역의 나무는 면이 적은 모양으로 그림 (Models.far)
 
 // 카메라가 보는 범위(시야 사각뿔)의 6면. 행렬 m = 투영 x 카메라
@@ -137,6 +303,29 @@ function boxDistance(box, p) {
   return Math.sqrt(s);
 }
 
+// 시야 면들을 길이 1로 맞춤 (공 모양 검사에서 면까지의 거리를 m로 재려면 필요)
+function normPlanes(planes) {
+  return planes.map(([a, b, c, d]) => {
+    const l = Math.hypot(a, b, c) || 1;
+    return [a / l, b / l, c / l, d / l];
+  });
+}
+
+// 공(가운데 c, 반지름 r)이 시야 안에 조금이라도 걸치는지 (planes는 normPlanes로 맞춘 것)
+function sphereVisible(planes, c, r) {
+  for (const [a, b, cc, d] of planes) if (a * c[0] + b * c[1] + cc * c[2] + d < -r) return false;
+  return true;
+}
+
+// 화면의 일부 사각형 [x0, y0, x1, y1] (-1~1)만 보는 시야의 6면 (물에 비친 모습은 물이 보이는 부분만 그림)
+function rectPlanes(m, rect) {
+  const row = (i) => [m[i], m[i + 4], m[i + 8], m[i + 12]];
+  const r0 = row(0), r1 = row(1), r2 = row(2), r3 = row(3);
+  const mix = (a, s, b, t) => a.map((v, i) => s * v + t * b[i]);
+  const [x0, y0, x1, y1] = rect;
+  return [mix(r0, 1, r3, -x0), mix(r3, x1, r0, -1), mix(r1, 1, r3, -y0), mix(r3, y1, r1, -1), mix(r3, 1, r2, 1), mix(r3, 1, r2, -1)];
+}
+
 // 모델이 차지하는 상자 (외곽선 두께를 맞출 때 사용)
 function boundsOf(b) {
   const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
@@ -156,6 +345,7 @@ const Renderer = {
   partMesh: {},    // 관절로 움직이는 몸 부분 모델 (기사·적·화살)
   partBox: {},     // 부분별 크기 (외곽선 두께 맞추기용)
   lights: { pos: new Float32Array(48), col: new Float32Array(36), count: 0 },   // 이번 화면의 점 빛 (gatherLights)
+  L: LIGHTING.forest,   // 이번 화면의 빛 값 (Atmos.L: 오픈월드는 시각·구역에 따라 섞인 값, 다른 구역은 테마 값 그대로)
   fog: 0.013,      // 이번 화면의 안개 짙기 (테마별 배율 적용)
   vp: null,        // 마지막 화면의 '투영 x 카메라' 행렬 (글자를 3D 위치에 띄울 때 사용)
 
@@ -286,6 +476,7 @@ const Renderer = {
     gl.uniformMatrix4fv(P.u.uView, false, view);
     gl.uniform1f(P.u.uScale, (H * proj[5]) / 2);
     gl.uniform1f(P.u.uTime, time);
+    gl.uniform1f(P.u.uLight, 1 - 0.8 * (this.L.night || 0));   // 밤엔 먼지·낙엽이 혼자 밝게 뜨지 않게
     gl.enable(gl.BLEND);
     gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE);
     gl.depthMask(false);
@@ -312,7 +503,7 @@ const Renderer = {
   draw(player, time) {
     const gl = GL.gl;
     const W = gl.drawingBufferWidth, H = gl.drawingBufferHeight;
-    const L = LIGHTING[World.level.theme];
+    const L = this.L = Atmos.current();   // 하늘·빛 (atmos.js)
     this.fog = CONFIG.graphics.fogDensity * (L.fogScale || 1);
     this.gatherLights(player, time);
     const eye = Camera.eye;
@@ -332,9 +523,10 @@ const Renderer = {
       this.drawShadowMap(this.lightVPNear, this.shadowNear, time, body.concat(foes), player);
     }
 
-    // 연못이 화면에 보이면 물에 비친 모습을 먼저 그려 둠
+    // 가까운 연못·늪 물(reflDist 안)이 화면에 보일 때만 물에 비친 모습을 먼저 그려 둠 (물이 보이는 화면 부분만)
     if (W !== Post.w || H !== Post.h) Post.resize(W, H);
-    this.hasRefl = !!(World.water && CONFIG.graphics.reflections && boxVisible(frustumPlanes(this.vp), World.waterBox));
+    this.reflRect = World.water && CONFIG.graphics.reflections ? this.waterRect(eye) : null;
+    this.hasRefl = !!this.reflRect;
     if (this.hasRefl) this.drawReflection(proj, view, eye, L, time, player, Camera.isFirst ? foes : body.concat(foes));
 
     Post.begin(W, H);
@@ -351,6 +543,7 @@ const Renderer = {
     this.drawFaded(proj, view, lightVP, eye, L, time, player);   // 카메라 앞을 가리는 잎은 하늘·물까지 그린 뒤 반투명하게
     if (World.gate) this.drawGateFX(proj, view, eye, time);
     if (World.shafts) this.drawShafts(proj, view, eye, L, time);
+    if (Atmos.beamMesh) this.drawBeams(proj, view, eye, L, time);
     this.drawFX(proj, view, time, H);
     Skills.buildGlow(eye, time, player);
     this.drawGlow(proj, view);
@@ -362,8 +555,8 @@ const Renderer = {
       this.drawViewModel(M4.perspective(Utils.rad(60), W / H, 0.01, 10), view, lightVP, eye, L, time, player);
     }
 
-    // 화면 속 해의 위치 → 빛줄기
-    const s = L.sunDir;
+    // 화면 속 해의 위치 → 빛줄기 (하늘에 그린 해 자리에서 나옴)
+    const s = L.skySun || L.sunDir;
     const cx = skyVP[0] * s[0] + skyVP[4] * s[1] + skyVP[8] * s[2];
     const cy = skyVP[1] * s[0] + skyVP[5] * s[1] + skyVP[9] * s[2];
     const cw = skyVP[3] * s[0] + skyVP[7] * s[1] + skyVP[11] * s[2];
@@ -376,6 +569,54 @@ const Renderer = {
       cloudRays: L.cloudRays, curve: L.curve, shadeTint: L.shadeTint, highTint: L.highTint, skyKeep: L.skyKeep, darkDesat: L.darkDesat,
       knee: L.bloomKnee, bloomScale: L.bloomScale, bloomScreen: L.bloomScreen, bloomTint: L.bloomTint, dof: L.dof,
       veil: L.veil, veilK: L.veilK && [L.veilK[0], L.veilK[1], L.veilK[2] * (1 - Skills.darken)] });   // 궁극기로 어두워질 땐 공기도 걷힘
+  },
+
+  // 물에 비친 모습이 필요한 화면 범위 [x0, y0, x1, y1] (-1~1). 카메라 reflDist(m) 안의 물이 화면에 없으면 null
+  // 화면에 걸친 물 구역 상자(World.waterBoxes)들의 모서리를 화면에 옮겨 감싸는 사각형 (먼 물도 같은 그림을 읽으므로 함께 감쌈)
+  waterRect(eye) {
+    const planes = frustumPlanes(this.vp), vp = this.vp, reach = CONFIG.graphics.reflDist ?? 60;
+    const boxes = World.waterBoxes && World.waterBoxes.length ? World.waterBoxes : [World.waterBox];
+    let near = false, x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const b of boxes) {
+      if (!b || !boxVisible(planes, b)) continue;
+      // 가까운지는 땅 위 거리로 잼 (예전 map.js waterBox와 같은 기준: 높은 언덕 위 카메라라도 물까지의 땅 위 거리가 reflDist 안이면 그림)
+      const dx = Math.max(b.min[0] - eye[0], 0, eye[0] - b.max[0]), dz = Math.max(b.min[2] - eye[2], 0, eye[2] - b.max[2]);
+      if (dx * dx + dz * dz < reach * reach) near = true;
+      for (let k = 0; k < 8; k++) {
+        const x = k & 1 ? b.max[0] : b.min[0], y = k & 2 ? b.max[1] : b.min[1], z = k & 4 ? b.max[2] : b.min[2];
+        const w = vp[3] * x + vp[7] * y + vp[11] * z + vp[15];
+        if (w < 0.1) {   // 카메라 옆·뒤로 넘어가는 모서리: 화면 전체
+          x0 = y0 = -1;
+          x1 = y1 = 1;
+          continue;
+        }
+        const sx = (vp[0] * x + vp[4] * y + vp[8] * z + vp[12]) / w, sy = (vp[1] * x + vp[5] * y + vp[9] * z + vp[13]) / w;
+        x0 = Math.min(x0, sx); x1 = Math.max(x1, sx);
+        y0 = Math.min(y0, sy); y1 = Math.max(y1, sy);
+      }
+    }
+    if (!near) return null;
+    const pad = 0.1;   // 물결에 일렁여 비껴 읽는 만큼 (물 셰이더: 화면의 3.5% = -1~1 기준 0.07) + 여유
+    return [Math.max(-1, x0 - pad), Math.max(-1, y0 - pad), Math.min(1, x1 + pad), Math.min(1, y1 + pad)];
+  },
+
+  // 몸 부분 하나를 감싸는 공 (가운데 part.sc, 반지름 part.sr). 부분 목록은 화면마다 새로 만들어지므로 한 번 계산해 붙여 둠
+  partSphere(part) {
+    if (part.sc) return;
+    const box = this.partBox[part.mesh], m = part.m;
+    const k = Math.max(Math.hypot(m[0], m[1], m[2]), Math.hypot(m[4], m[5], m[6]), Math.hypot(m[8], m[9], m[10]));   // 가장 크게 늘인 방향의 배율
+    part.sc = M4.transformPoint(m, box.c);
+    part.sr = 0.5 * Math.hypot(box.s[0], box.s[1], box.s[2]) * k + 0.05;   // (외곽선 두께만큼 여유)
+  },
+
+  // 시야(planes: normPlanes로 맞춘 것) 안에 걸치는 부분만 골라냄
+  cullParts(parts, planes) {
+    const out = [];
+    for (const part of parts) {
+      this.partSphere(part);
+      if (sphereVisible(planes, part.sc, part.sr)) out.push(part);
+    }
+    return out;
   },
 
   // 해 쪽에서 내려다보는 카메라: 전사 앞쪽 ahead(m) 지점을 중심으로 가로세로 2R(m), 깊이 ±depth(m)
@@ -406,10 +647,15 @@ const Renderer = {
     gl.uniform1f(P.u.uGrass, 0);
     gl.uniform3fv(P.u.uPlayerPos, [player.x, 0, player.z]);
     gl.disable(gl.CULL_FACE);   // 잎 판·얇은 면도 그림자를 드리우게
-    const planes = frustumPlanes(lightVP);
+    const planes = frustumPlanes(lightVP), eye = Camera.eye;
     const inLight = (box) => boxVisible(planes, box);
-    for (const m of World.meshes) if (m.shadow) GL.drawMesh(m.far || m.mesh, inLight);   // 나무 그림자는 면이 적은 모양으로 (그림자에선 차이가 안 보임)
-    for (const part of parts) {   // 전사(1인칭에서도)·적·화살의 그림자
+    for (const m of World.meshes) {
+      if (!m.shadow) continue;
+      // 나무 그림자는 면이 적은 모양으로 (그림자에선 차이가 안 보임), 카메라를 향한 잎 판도 뺀 모양 (map.js shadowModel)
+      // 멀면 그리지 않는 작은 소품(dist)은 그림자도 같은 거리까지만
+      GL.drawMesh(m.shadowMesh || m.far || m.mesh, m.dist ? (box) => inLight(box) && boxDistance(box, eye) < m.dist : inLight);
+    }
+    for (const part of this.cullParts(parts, normPlanes(planes))) {   // 전사(1인칭에서도)·적·화살의 그림자 (이 그림자 지도에 걸치는 것만)
       gl.uniformMatrix4fv(P.u.uModel, false, part.m);
       GL.drawMesh(this.partMesh[part.mesh]);
     }
@@ -429,7 +675,7 @@ const Renderer = {
     const vp = M4.multiply(proj, rot);
     gl.useProgram(P.prog);
     gl.uniformMatrix4fv(P.u.uInvVP, false, M4.invert(vp));
-    gl.uniform3fv(P.u.uSunDir, L.sunDir);
+    gl.uniform3fv(P.u.uSunDir, L.skySun || L.sunDir);   // 하늘의 해 자리 (노을 뒤엔 지평선 아래로 계속 짐)
     gl.uniform3fv(P.u.uSunColor, L.sunColor);
     gl.uniform3fv(P.u.uFogColor, L.fogColor);
     gl.uniform3fv(P.u.uZenith, L.zenith);
@@ -439,6 +685,9 @@ const Renderer = {
     gl.uniform3fv(P.u.uCloudLit, L.cloudLit);
     gl.uniform3fv(P.u.uCloudShade, L.cloudShade);
     gl.uniform4f(P.u.uCloudCfg, L.cumulus ?? 1, L.cumulusTop ?? 0.7, L.wisps ?? 0.6, L.cumulusBase ?? 0.15);   // 구름 설정 (테마에 없으면 맑은 낮 숲 값)
+    gl.uniform1f(P.u.uNight, L.night || 0);              // 밤: 별과 달
+    gl.uniform3fv(P.u.uMoonDir, L.moonDir || MOON_DIR);
+    gl.uniform1f(P.u.uSunDisc, L.sunDisc ?? 1);          // 어스름·밤엔 해를 그리지 않음
     gl.disable(gl.CULL_FACE);   // 물에 비친 장면(앞뒷면을 뒤집어 그림)에서도 하늘이 빠지지 않게
     gl.depthFunc(gl.LEQUAL);    // 깊이는 검사만: 가장 먼 깊이에 그리면 이미 물체가 있는 곳은 건너뜀
     gl.depthMask(false);
@@ -461,34 +710,57 @@ const Renderer = {
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, this.shadowNear.tex);
     gl.uniform1i(u.uShadowNear, 2);
-    const L = LIGHTING[World.level.theme];
+    const L = this.L;
     gl.uniform1f(u.uShadowOutside, L.shadowOutside ?? 1);
     gl.uniform1f(u.uClouds, L.clouds === false ? 0 : 1);
+    gl.uniform4fv(u.uCloudShadow, L.cloudShadow || CLOUD_SHADOW_DEFAULT);   // 구름 그림자 크기·짙기 (테마에 없으면 예전 값)
   },
 
   // 이번 화면에 쓸 점 빛 (가까운 것부터 12개): 횃불은 일렁이고, 동굴에선 들고 있는 검도 속성 색으로 주변을 비춤
+  // 밤에는 등불·모닥불이 더 밝고 넓게 (L.lampBoost·lampRange), night: true인 빛(창문 등)은 밤에만 켜짐
+  // 멀어지는 빛은 마지막 6m 동안 서서히 꺼짐. 빛이 고를 수 있는 수(휴대폰 6개)보다 많으면, 다음 차례 빛과 3m 안으로 가까운 빛도 서서히 줄임
+  // → 걸어가며 고르는 빛이 바뀔 때 툭 켜지거나 꺼지지 않음
   gatherLights(player, time) {
-    const near = [];
+    const L = this.L, boost = L.lampBoost ?? 1, range = L.lampRange ?? 1, nk = L.night || 0;
+    const max = Utils.clamp(CONFIG.graphics.maxLights | 0, 1, 12), slots = World.cave ? max - 1 : max, cap = slots + 1;   // (한 개 더 모아 다음 차례 빛의 거리를 앎)
+    const pick = this.lightPick || (this.lightPick = { d: new Float32Array(13), k: new Float32Array(13), l: new Array(13).fill(null) });
+    let n = 0;
     for (const l of World.lights) {
       const d = Math.hypot(l.x - player.x, l.z - player.z);
-      if (d < l.r + 30) near.push([d, l]);
+      if (d >= l.r + 30) continue;
+      let k = Utils.smooth((l.r + 30 - d) / 6) * boost * (l.night ? nk : 1);
+      if (k * Math.max(l.color[0], l.color[1], l.color[2]) < 0.02) continue;   // 꺼진 빛(낮의 창문 등)은 건너뜀
+      if (l.flicker) k *= 0.82 + 0.1 * Math.sin(time * 11 + l.flicker) + 0.08 * Math.sin(time * 23.7 + l.flicker * 3);
+      // 가까운 순서로 끼워 넣기 (cap개까지만)
+      let i = n < cap ? n++ : cap;
+      if (i === cap && d >= pick.d[cap - 1]) continue;
+      if (i === cap) i = cap - 1;
+      while (i > 0 && pick.d[i - 1] > d) {
+        pick.d[i] = pick.d[i - 1]; pick.k[i] = pick.k[i - 1]; pick.l[i] = pick.l[i - 1];
+        i--;
+      }
+      pick.d[i] = d; pick.k[i] = k; pick.l[i] = l;
     }
-    near.sort((a, b) => a[0] - b[0]);
-    const max = Utils.clamp(CONFIG.graphics.maxLights | 0, 1, 12);
-    const list = near.slice(0, World.cave ? max - 1 : max).map(([, l]) => {
-      const k = l.flicker ? 0.82 + 0.1 * Math.sin(time * 11 + l.flicker) + 0.08 * Math.sin(time * 23.7 + l.flicker * 3) : 1;
-      return { x: l.x, y: l.y, z: l.z, r: l.r, color: l.color.map((v) => v * k) };
-    });
+    if (n > slots) {   // 넘친 빛(다음 차례)은 빼고, 그 빛과 거리가 비슷한 빛은 줄여서 바뀌는 순간이 부드럽게
+      const cut = pick.d[slots];
+      n = slots;
+      for (let i = 0; i < n; i++) pick.k[i] *= Utils.smooth((cut - pick.d[i]) / 3);
+    }
+    const pos = this.lights.pos, col = this.lights.col;
+    for (let i = 0; i < n; i++) {
+      const l = pick.l[i], k = pick.k[i];
+      pos[i * 4] = l.x; pos[i * 4 + 1] = l.y; pos[i * 4 + 2] = l.z;
+      pos[i * 4 + 3] = l.r * range;
+      col[i * 3] = l.color[0] * k; col[i * 3 + 1] = l.color[1] * k; col[i * 3 + 2] = l.color[2] * k;
+    }
     if (World.cave && !player.dead) {
       const tip = !Camera.isFirst && Character.swordM ? M4.transformPoint(Character.swordM, [0, Weapons.cur.length * 0.6, 0]) : V3.add(player.eye(), V3.scale(player.forward(), 0.6));
-      list.push({ x: tip[0], y: tip[1], z: tip[2], r: 4.5, color: Weapons.cur.spark.map((v) => v * 0.55) });
+      const c = Weapons.cur.spark;
+      pos[n * 4] = tip[0]; pos[n * 4 + 1] = tip[1]; pos[n * 4 + 2] = tip[2]; pos[n * 4 + 3] = 4.5;
+      col[n * 3] = c[0] * 0.55; col[n * 3 + 1] = c[1] * 0.55; col[n * 3 + 2] = c[2] * 0.55;
+      n++;
     }
-    const pos = new Float32Array(48), col = new Float32Array(36);
-    list.forEach((l, i) => {
-      pos.set([l.x, l.y, l.z, l.r], i * 4);
-      col.set(l.color, i * 3);
-    });
-    this.lights = { pos, col, count: list.length };
+    this.lights.count = n;
   },
 
   // 3D 모델용 셰이더 준비 (빛·안개·그림자 값 넘기기)
@@ -538,6 +810,18 @@ const Renderer = {
     gl.uniform3fv(u.uLightColors, this.lights.col);
     gl.uniform1i(u.uLightCount, this.lights.count);
     gl.uniform1f(u.uMistBase, World.waterLevel === null ? -0.8 : World.waterLevel);
+    // ---- 지형·물 작업: 마른 풀밭 색 (테마에 없으면 예전 주황빛 금색) ----
+    gl.uniform3fv(u.uGoldHue, (L.goldHue || [[1.55, 1.0, 0.1], [2.0, 0.84, 0.06]]).flat());
+    // ---- (지형·물 작업 끝) ----
+    // ---- 구역별 풍경 작업: 마을 돌바닥 무늬 켜기, 초원 꽃밭 색 (먼 곳 땅의 꽃 점) ----
+    gl.uniform1f(u.uCobble, CONFIG.graphics.cobbles === false ? 0 : 1);
+    gl.uniform3fv(u.uCarpetHue, this._carpetHue || (this._carpetHue = new Float32Array(MEADOW_FLOWERS.flat())));
+    // ---- (구역별 풍경 작업 끝) ----
+    gl.uniform2fv(u.uMist, L.mist || MIST_DEFAULT);          // 물안개 짙기·높이 (늪지는 짙게)
+    gl.uniform1f(u.uHazeStart, L.hazeStart ?? 20);           // 먼 공기가 시작되는 거리
+    gl.uniform1f(u.uNight, L.night || 0);                    // 밤 (안개가 달 쪽으로 따뜻해지지 않게)
+    gl.uniform3fv(u.uSkySun, L.skySun || L.sunDir);          // 먼 안개의 노을빛은 하늘의 해 자리 쪽 (빛 방향과 다를 수 있음)
+    gl.uniform1f(u.uGlowK, L.glowK ?? 1);                    // 창문·등불 유리 밝기 (밤엔 세게, 캐릭터는 drawParts에서 1)
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.leafTex);
     gl.uniform1i(u.uLeafTex, 1);
@@ -567,6 +851,8 @@ const Renderer = {
       gl.uniform1f(u.uAOHeight, m.ao || 0);
       gl.uniform1f(u.uGrass, m.grass ? 1 : 0);
       gl.uniform2f(u.uGrassLod, m.lod || 0, m.grass ? m.dist || 0 : 0);   // 풀·꽃·고사리는 그리는 거리 끝에서 땅으로 줄어듦
+      gl.uniform2f(u.uGrassFade, m.fadeStart || 0.72, m.lod ? CONFIG.graphics.grassWiden ?? 0.3 : 0);   // 포기마다 사라지는 거리가 시작되는 비율, 먼 풀밭 포기 넓히기
+      const count = m.fadeStart ? (part) => this.tuftCount(part, eye, m) : null;   // 먼 구역은 아직 남은 포기만
       gl.uniform1f(u.uRim, m.rim || 0);
       gl.uniform1f(u.uFogDensity, m.fog ? m.fog * (L.farFog ?? 1) : this.fog);   // 먼 산·언덕은 따로 정한 안개 (테마별 배율)
       gl.uniform1f(u.uCamFade, Camera.isFirst || m.ground ? 0 : m.grass ? 3 : 1);   // 가리는 부분: 나무·덤불은 drawFaded에서 반투명하게, 풀은 그냥 잘라 냄
@@ -574,7 +860,7 @@ const Renderer = {
         GL.drawMesh(m.mesh, (box) => test(box) && boxDistance(box, eye) < TREE_LOD);
         GL.drawMesh(m.far, (box) => test(box) && boxDistance(box, eye) >= TREE_LOD);
       } else {
-        GL.drawMesh(m.mesh, test);
+        GL.drawMesh(m.mesh, test, null, count);
       }
     }
     gl.uniform1f(u.uCamFade, 0);
@@ -585,6 +871,24 @@ const Renderer = {
     gl.uniform2f(u.uGrassLod, 0, 0);
     gl.uniform1f(u.uFogDensity, this.fog);
     return u;
+  },
+
+  // 풀 구역에서 아직 다 사라지지 않은 포기 수 (구역 안은 늦게 사라지는 포기부터 놓여 있음: map.js groupByChunk)
+  // 셰이더 worldPos와 같은 식: 포기가 다 사라지는 거리 = 끝 거리 x (시작 비율 ~ 1 사이, 난수의 제곱근만큼)
+  // 구역에서 카메라에 가장 가까운 곳보다 먼저 다 사라지는 포기는 어디서도 보이지 않으므로 빼고 그림 (그림은 똑같음)
+  tuftCount(part, eye, m) {
+    const f = part.fade;
+    if (!f) return part.count;
+    const t = (boxDistance(part.box, eye) / m.dist - m.fadeStart) / (1 - m.fadeStart);
+    if (t <= 0) return part.count;
+    const thr = t * t - 0.002;   // 이 난수 이하인 포기는 이미 다 사라짐 (계산 오차만큼 넉넉히)
+    let lo = 0, hi = f.length;   // f는 큰 값부터 놓여 있음 → thr보다 큰 값의 개수
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (f[mid] > thr) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
   },
 
   // 3인칭: 카메라 바로 앞·용사를 가리는 나무·덤불을 반투명하게 겹쳐 그림 (drawWorld에서 빼 둔 부분만)
@@ -617,9 +921,11 @@ const Renderer = {
   },
 
   // 관절로 움직이는 것들(기사·적·화살). 먼저 살짝 부풀린 뒷면을 어둡게 그려 외곽선을 만들고, 그 위에 그림
-  drawParts(u, parts, proj, view, time) {
-    const L = LIGHTING[World.level.theme];
-    const gl = GL.gl, w = CONFIG.graphics.outline * (L.outline ?? 1);   // 테마별 두께 (숲은 야숨처럼 가늘게)
+  // 화면 밖에 있는 부분은 건너뜀. opts.planes: 이 시야 면들로 고름 (없으면 카메라 시야), opts.outline: false면 외곽선 없이 (물에 비친 모습)
+  drawParts(u, parts, proj, view, time, opts = {}) {
+    const L = this.L;
+    const gl = GL.gl, w = opts.outline === false ? 0 : CONFIG.graphics.outline * (L.outline ?? 1);   // 테마별 두께 (숲은 야숨처럼 가늘게)
+    parts = this.cullParts(parts, normPlanes(opts.planes || frustumPlanes(M4.multiply(proj, view))));
     if (w > 0) {
       const O = this.p.outline;
       gl.useProgram(O.prog);
@@ -631,7 +937,7 @@ const Renderer = {
       gl.uniform2fv(O.u.uTone, L.outlineTone || [0.3, 0.8]);   // 테마별 외곽선 색 (숲은 그 부분 색을 어둡게만 → 거의 눈에 띄지 않는 부드러운 선)
       gl.cullFace(gl.FRONT);
       for (const part of parts) {
-        if (part.mesh === 'face' || part.mesh === 'lids') continue;   // 눈·코·입은 외곽선 없이
+        if (part.noOutline || part.mesh === 'face' || part.mesh === 'lids') continue;   // 눈·코·입은 외곽선 없이 (마을 사람은 noOutline)
         const box = this.partBox[part.mesh];
         const grow = M4.chain(M4.translation(box.c[0], box.c[1], box.c[2]),
           M4.scaling(1 + (2 * w) / box.s[0], 1 + (2 * w) / box.s[1], 1 + (2 * w) / box.s[2]),
@@ -644,6 +950,7 @@ const Renderer = {
     }
     gl.uniform1f(u.uRim, 1);
     gl.uniform1f(u.uCel, 1);   // 캐릭터는 애니메이션풍 명암
+    gl.uniform1f(u.uGlowK, 1); // 괴물 눈·갑옷 빛줄기는 밤에도 그대로
     const swap = [Weapons.tint[0], Weapons.tint[1], Weapons.tint[2], 1], noSwap = [0, 0, 0, 0];
     for (const part of parts) {
       gl.uniformMatrix4fv(u.uModel, false, part.m);
@@ -712,11 +1019,16 @@ const Renderer = {
     gl.viewport(0, 0, t.w, t.h);
     gl.clearColor(0, 0, 0, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    // 물이 보이는 화면 부분(this.reflRect)만 그림: 그 밖은 물이 읽지 않으므로 하늘·나무를 그릴 필요가 없음
+    const r = this.reflRect || [-1, -1, 1, 1];
+    const px0 = Math.floor((r[0] * 0.5 + 0.5) * t.w), py0 = Math.floor((r[1] * 0.5 + 0.5) * t.h);
+    gl.enable(gl.SCISSOR_TEST);
+    gl.scissor(px0, py0, Math.ceil((r[2] * 0.5 + 0.5) * t.w) - px0, Math.ceil((r[3] * 0.5 + 0.5) * t.h) - py0);
     gl.frontFace(gl.CW);   // 뒤집힌 세상은 앞면·뒷면도 반대
     this.drawSky(proj, rview, L, time);
     const u = this.useWorld(proj, rview, null, [eye[0], 2 * wl - eye[1], eye[2]], L, time, player);
     gl.uniform1f(u.uClipY, wl - 0.05);   // 물 아래 부분은 비치지 않음
-    const planes = frustumPlanes(M4.multiply(proj, rview));
+    const planes = rectPlanes(M4.multiply(proj, rview), r);
     const test = (box) => boxVisible(planes, box);
     for (const m of World.meshes) {
       if (m.grass || (m.dist && m.dist < 45)) continue;
@@ -731,9 +1043,10 @@ const Renderer = {
     gl.uniform1f(u.uGroundDetail, 0);
     gl.uniform1f(u.uAOHeight, 0);
     gl.uniform1f(u.uFogDensity, this.fog);
-    this.drawParts(u, parts, proj, rview, time);
+    this.drawParts(u, parts, proj, rview, time, { planes, outline: false });   // 물에 비친 몸은 작고 일렁여서 외곽선 없이
     gl.uniform1f(u.uClipY, -1000);
     gl.frontFace(gl.CCW);
+    gl.disable(gl.SCISSOR_TEST);
   },
 
   // 출구: 닫혀 있으면 푸른 마법 장벽, 열리면 금빛 빛기둥
@@ -787,6 +1100,33 @@ const Renderer = {
     gl.disable(gl.BLEND);
   },
 
+  // 북쪽 숲 나무 사이로 비스듬히 내리는 햇살 기둥 (atmos.js가 만든 모델, 빛을 더함)
+  // 낮 해 방향에 맞춰 만들어 두었으므로 해가 기울거나(노을) 밤이면 사라지고, 숲을 벗어나도 사라짐 (L.beams)
+  drawBeams(proj, view, eye, L, time) {
+    const day = LIGHTING.forest.sunDir;
+    const dayK = Utils.smooth((V3.dot(L.sunDir, day) - 0.995) / 0.005) * (1 - (L.night || 0));
+    const amount = (L.beams || 0) * dayK * (1 - Skills.dim * 0.7);
+    if (amount < 0.01) return;
+    const gl = GL.gl, P = this.p.barrier;
+    gl.useProgram(P.prog);
+    gl.uniformMatrix4fv(P.u.uProj, false, proj);
+    gl.uniformMatrix4fv(P.u.uView, false, view);
+    gl.uniform1f(P.u.uTime, time);
+    gl.uniform3fv(P.u.uCamPos, eye);
+    gl.uniform1f(P.u.uMode, 3);
+    gl.uniform1f(P.u.uAmount, amount);
+    gl.uniform3fv(P.u.uColor, L.beamColor || [1.0, 0.9, 0.62]);
+    gl.uniform3fv(P.u.uLightDir, Atmos.beamDir);   // 해 쪽을 바라볼 때 진하게 (빛은 앞으로 흩어짐)
+    gl.enable(gl.BLEND);
+    gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ZERO, gl.ONE);
+    gl.disable(gl.CULL_FACE);
+    gl.depthMask(false);
+    GL.drawMesh(Atmos.beamMesh);
+    gl.depthMask(true);
+    gl.enable(gl.CULL_FACE);
+    gl.disable(gl.BLEND);
+  },
+
   // 연못 물 (반투명, 뒤에 있는 물속 땅이 비쳐 보임)
   drawWater(proj, view, lightVP, eye, L, time) {
     const gl = GL.gl, P = this.p.water, u = P.u;
@@ -808,6 +1148,18 @@ const Renderer = {
     gl.uniform2fv(u.uScreen, [gl.drawingBufferWidth, gl.drawingBufferHeight]);
     gl.uniform1f(u.uDim, Skills.dim);
     gl.uniform3fv(u.uDimTint, (Skills.ult ? Skills.ult.pal : Weapons.cur).dark);
+    // ---- 지형·물 작업: 늪 물 색, 공기 원근감·물안개 (오픈월드만. 다른 맵의 연못은 예전 그대로) ----
+    const wc = L.water || {};
+    gl.uniform3fv(u.uMurk, [...(wc.murk || [0.07, 0.08, 0.035]), ...(wc.murkDeep || [0.025, 0.03, 0.014]), ...(wc.duckweed || [0.1, 0.16, 0.035])]);
+    gl.uniform4fv(u.uHaze, World.bio && L.haze ? L.haze : [0, 0, 0, 0]);
+    gl.uniform1f(u.uMistBase, World.bio ? World.waterLevel : -1000);
+    // ---- (지형·물 작업 끝) ----
+    // 하늘·빛: 물안개·먼 공기·밤 안개 색을 땅과 같은 값으로 (안 그러면 안개 낀 늪에서 물웅덩이만 맑게 뚫려 보임), 밤엔 물빛도 어둡게
+    gl.uniform2fv(u.uMist, L.mist || MIST_DEFAULT);
+    gl.uniform1f(u.uHazeStart, L.hazeStart ?? 20);
+    gl.uniform1f(u.uNight, L.night || 0);
+    gl.uniform3fv(u.uSkySun, L.skySun || L.sunDir);
+    gl.uniform1f(u.uWaterLight, 1 - 0.85 * (L.night || 0));
     gl.enable(gl.BLEND);
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE);   // 하늘 표시(알파)는 그대로
     gl.disable(gl.CULL_FACE);
@@ -826,8 +1178,12 @@ const Renderer = {
     gl.uniform3fv(P.u.uCam, eye);
     gl.uniform1f(P.u.uTime, time);
     gl.uniform1f(P.u.uScale, (H * proj[5]) / 2);
-    const L = LIGHTING[World.level.theme];
-    gl.uniform3fv(P.u.uColor, World.level.theme === 'dusk' ? L.particleColor.map((v) => v * 1.6) : L.particleColor);   // 반딧불은 더 밝게
+    const L = this.L, g = L.particleGain ?? 1, c = this.partColor || (this.partColor = new Float32Array(3)), nk = L.night || 0;
+    for (let i = 0; i < 3; i++) c[i] = L.particleColor[i] * g;   // 반딧불은 더 밝게 (테마·시각별 배율)
+    gl.uniform3fv(P.u.uColor, c);
+    gl.uniform1f(P.u.uBlink, nk);                                  // 밤: 꽃가루 대신 천천히 깜빡이는 반딧불
+    gl.uniform1f(P.u.uSize, 0.06 + 0.04 * nk);                     // 반딧불은 조금 크게
+    gl.uniform1f(P.u.uDensity, 1 + ((L.fireflies ?? 1) - 1) * nk); // 반딧불 양 (낮 꽃가루는 그대로)
     gl.enable(gl.BLEND);
     gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ZERO, gl.ONE);   // 빛나는 느낌 (색을 더함, 하늘 표시는 그대로)
     gl.depthMask(false);
@@ -843,6 +1199,7 @@ const Renderer = {
     const u = this.useWorld(vproj, view, lightVP, eye, L, time, player);
     gl.uniform1f(u.uFogDensity, 0);
     gl.uniform1f(u.uMistBase, -100);
+    gl.uniform1f(u.uGlowK, 1);
     gl.uniform1f(u.uRim, 0.6);
     gl.uniform1f(u.uAlphaOut, 0.25);   // 후처리에서 손·검을 알아보게
     const camWorld = M4.invert(view);

@@ -61,6 +61,7 @@ const Game = {
     UI.buildMinimap();
     UI.mapOpen = false;
     Sound.setAmbient();
+    Atmos.snap();   // 하늘·빛을 이 구역에 바로 맞춤 (atmos.js)
     this.levelStart = this.time;
   },
 
@@ -75,6 +76,7 @@ const Game = {
     Skills.reset();
     Cape.reset();
     this.deathTimer = 0;
+    Atmos.snap();   // 마을 공기로 바로
     UI.message('마을에서 눈을 떴다', '괴물들은 들판으로 돌아갔다');
   },
 
@@ -117,6 +119,7 @@ const Game = {
     Character.updateGhosts(p, dt, Character.matrices(p));
     Cape.update(dt, Character.W, p.groundY, this.time);
     Camera.update(p, dt);
+    Atmos.update(dt, p);   // 하루 시각·구역 공기 (atmos.js)
     Particles.update(dt, this.time, p);
 
     // 적을 모두 물리치면 출구가 열림 (오픈월드는 zones.js가 들판을 모두 평정했을 때 엶)

@@ -15,8 +15,11 @@ const Particles = {
     this.list = [];
     if (!CONFIG.graphics.life) return;
     const spots = World.flowerSpots;
-    for (let i = 0; i < (spots.length ? 12 : 0); i++) {
-      const [x, y, z] = spots[(Math.random() * spots.length) | 0];
+    const meadow = spots.filter((s) => s[3] === 1);   // 초원 꽃밭 (map.js가 네 번째 값 1로 표시) → 나비 열에 일곱은 여기로
+    const n = World.bio ? CONFIG.graphics.butterflies ?? 12 : 12;   // 나비 수 (오픈월드만 설정을 따름, 다른 맵은 휴대폰에서도 예전처럼 12)
+    for (let i = 0; i < (spots.length ? n : 0); i++) {
+      const from = meadow.length && Math.random() < 0.7 ? meadow : spots;
+      const [x, y, z] = from[(Math.random() * from.length) | 0];
       this.list.push({ type: FX.BUTTERFLY, x, y: y + 0.6, z, hx: x, hz: z, vx: 0, vy: 0, vz: 0, lift: 0,
         life: Infinity, size: 0.16, seed: Math.random(), color: BUTTERFLY_COLORS[i % 4], alpha: 1 });
     }
@@ -122,7 +125,7 @@ const Particles = {
     for (const [tx, ty, tz] of World.torches) {
       if (Math.abs(tx - player.x) > 28 || Math.abs(tz - player.z) > 28) continue;
       if (Math.random() < dt * 22) this.flame(tx + (Math.random() - 0.5) * 0.3, ty, tz + (Math.random() - 0.5) * 0.3, 0.28 + Math.random() * 0.12, FLAME_COLOR, 0.55);
-      if (Math.random() < dt * 3) this.ember(tx, ty + 0.3, tz);
+      if (Math.random() < dt * 3 * (1 + Atmos.night)) this.ember(tx, ty + 0.3, tz);   // 밤엔 불씨가 더 자주 (어둠 속에서 잘 보임)
     }
 
     // 낙엽: 가까운 나무에서 가끔 한 장씩
@@ -182,11 +185,13 @@ const Particles = {
         p.z += p.vz * dt;
         p.lift += ((d < 2.5 ? 1 : 0) - p.lift) * Math.min(1, dt * 2);
         p.y = World.groundHeight(p.x, p.z) + 0.45 + Math.sin(time * 2.3 + p.seed * 9) * 0.25 + p.lift * 1.2;
+        p.alpha = 1 - (Atmos.night || 0);   // 밤엔 쉬러 감 (대신 반딧불)
       } else {   // 새: 하늘 높이 원을 그리며
         p.angle += p.speed * dt;
         p.x = p.cx + Math.cos(p.angle) * p.radius;
         p.z = p.cz + Math.sin(p.angle) * p.radius;
         p.y = p.height + Math.sin(time * 0.5 + p.seed * 6) * 2;
+        p.alpha = 1 - (Atmos.night || 0);   // 밤엔 둥지로
       }
     }
     this.list = this.list.filter((p) => p.life > 0);

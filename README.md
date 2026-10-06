@@ -2,7 +2,7 @@
 
 | 폴더 | 내용 |
 |---|---|
-| [`warriors-journey/`](warriors-journey/) | **전사의 여정** — 브라우저 3D 액션 게임 (오픈월드 마을·몬스터 구역, 차지 공격, 동굴 보스). 실행·구조는 그 폴더의 README·PROGRESS.md |
+| [`warriors-journey/`](warriors-journey/) | **전사의 여정** — 브라우저 3D 액션 게임 (오픈월드 마을·몬스터 구역, 낮과 밤, 차지 공격, 동굴 보스). 실행·구조는 그 폴더의 README·PROGRESS.md |
 | 그 밖의 파일 | 아래 '더 라인' 모션그래픽 영상 프로젝트 |
 
 ---

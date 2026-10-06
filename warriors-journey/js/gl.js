@@ -73,13 +73,15 @@ const GL = {
     const count = b.pos.length / 3;
     if (!instances) return { vao: makeVao(0), buffers, count, instanced: false, parts: [] };
     const list = groups || [{ start: 0, count: instances.length / 8, box: null }];
-    const parts = list.map((g) => ({ vao: makeVao(g.start), count: g.count, box: g.box }));
+    const parts = list.map((g) => ({ vao: makeVao(g.start), start: g.start, count: g.count, box: g.box, fade: g.fade || null }));
     return { buffers, count, instanced: true, parts };
   },
 
   // test(box)가 false인 구역은 건너뜀 (화면 밖이거나 너무 멂). 0~1 숫자면 모델 정점 앞부분만 그 비율만큼 그림 (먼 풀은 풀잎 절반)
   // tint: 인스턴스 없이 그릴 때 [크기, 색r, 색g, 색b] (예: 슬라임 색 바꾸기)
-  drawMesh(m, test, tint) {
+  // count(part): 그 구역에서 앞에서부터 몇 개만 그릴지 (먼 풀 구역은 이미 땅으로 줄어든 포기를 빼고 그림. 없으면 전부)
+  // 나란히 붙어 있는 구역들이 함께 보이면 한 번에 묶어 그림 (그래픽 카드에 보내는 명령 수가 줄어 가벼움, 그림은 똑같음)
+  drawMesh(m, test, tint, count) {
     const gl = this.gl;
     if (!m.instanced) {
       gl.bindVertexArray(m.vao);
@@ -89,11 +91,28 @@ const GL = {
       gl.drawArrays(gl.TRIANGLES, 0, m.count);
       return;
     }
+    let first = null, n = 0, verts = 0, end = -1;   // 지금 묶고 있는 구역들: 첫 구역, 인스턴스 수, 정점 수, 다음에 이어져야 할 인스턴스 번호
     for (const part of m.parts) {
       const k = test && part.box ? test(part.box) : true;
       if (!k) continue;
-      gl.bindVertexArray(part.vao);
-      gl.drawArraysInstanced(gl.TRIANGLES, 0, k === true ? m.count : Math.max(3, Math.round((m.count * k) / 3) * 3), part.count);
+      const c = count ? Math.min(part.count, count(part)) : part.count;
+      if (c <= 0) continue;
+      const v = k === true ? m.count : Math.max(3, Math.round((m.count * k) / 3) * 3);
+      if (first && v === verts && part.start === end) n += c;   // 바로 앞 구역에 이어 붙임
+      else {
+        if (first) {
+          gl.bindVertexArray(first.vao);
+          gl.drawArraysInstanced(gl.TRIANGLES, 0, verts, n);
+        }
+        first = part;
+        n = c;
+        verts = v;
+      }
+      end = c === part.count ? part.start + part.count : -1;   // 일부만 그린 구역 뒤에는 이어 붙일 수 없음
+    }
+    if (first) {
+      gl.bindVertexArray(first.vao);
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, verts, n);
     }
   },
 

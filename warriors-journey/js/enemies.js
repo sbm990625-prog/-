@@ -984,11 +984,16 @@ const Enemies = {
     }
   },
 
-  // 그리기용 목록 [{ mesh, m, flash, tint }]
+  // 그리기용 몸 부분 목록 [{ mesh, m, flash, tint }]. 카메라에서 CONFIG.graphics.actorDist(m)보다 먼 적·마을 사람은 빼고 (보스는 늘 그림),
+  // 그 끝 몇 m 동안은 발밑을 중심으로 작아지며 사라짐 (툭 사라지지 않게. 그 거리면 몇 픽셀이라 줄어드는 것도 안 보임)
   parts(time) {
-    const out = [];
+    const out = [], eye = Camera.eye, far = CONFIG.graphics.actorDist ?? 70, band = 8;
+    const sizeAt = (x, z) => Utils.clamp((far - Math.hypot(x - eye[0], z - eye[2])) / band, 0, 1);   // 1 = 그대로, 0 = 그리지 않음
     for (const e of this.list) {
+      const size = e.boss ? 1 : sizeAt(e.x, e.z);
+      if (size <= 0) continue;
       let root = M4.chain(M4.translation(e.x, e.groundY + e.dy + e.fly, e.z), M4.rotationY(-e.facing - Math.PI / 2));
+      if (size < 1) root = M4.chain(root, M4.scaling(size, size, size));
       let flash = e.flash > 0 ? 0.85 : 0, tint = [1, e.tint[0], e.tint[1], e.tint[2]];
       if (e.dead) {   // 뒤로 넘어간 채(엉덩이 높이를 축으로) 마지막 0.3초 동안 작아지며 사라짐
         const piv = e.hitHeight * 0.9, k = Utils.clamp(e.deathTimer / 0.3, 0, 1), age = DEATH_TIME - e.deathTimer;
@@ -1018,7 +1023,16 @@ const Enemies = {
         for (const part of rigMatrices(rig, root, pose, ys).out) out.push({ mesh: part.mesh, m: part.m, flash, tint });
       }
     }
-    Village.parts(out, time);   // 마을 사람
+    for (const v of Village.list) {   // 마을 사람 (같은 거리 규칙)
+      const size = sizeAt(v.x, v.z);
+      if (size <= 0) continue;
+      const n = out.length;
+      v.parts(out, time);
+      if (size < 1) {
+        const k = M4.chain(M4.translation(v.x, v.groundY, v.z), M4.scaling(size, size, size), M4.translation(-v.x, -v.groundY, -v.z));
+        for (let i = n; i < out.length; i++) out[i].m = M4.multiply(k, out[i].m);
+      }
+    }
     for (const a of Arrows.list) out.push({ mesh: 'arrow', m: Arrows.matrix(a), flash: 0 });
     for (const b of Boulders.list) out.push({ mesh: 'glRock', m: Boulders.matrix(b), flash: 0 });
     return out;

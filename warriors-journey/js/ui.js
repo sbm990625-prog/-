@@ -1034,12 +1034,17 @@ const UI = {
       : { '#': '#1f3a22', 'f': '#6f9a48', ':': '#a88a5a', '~': '#3f86b8', 'E': '#8a8a8a', 'h': '#8a5a3a', 'F': '#a07a4a' };
     const floor = World.cave ? '#5e574f' : '#5c8a3e';
     const dots = World.cave ? { C: '#7fe8ff', t: '#ffb040', S: '#a49d94', R: '#8d9096', X: '#a8a49a' }
-      : { T: '#2c5a2c', R: '#8d9096', b: '#2f6a2a', X: '#a8a49a', W: '#6fa0c8', L: '#ffd070', c: '#ff8a40', A: '#b08a5a' };
+      : { T: '#2c5a2c', R: '#8d9096', b: '#2f6a2a', X: '#a8a49a', W: '#6fa0c8', L: '#ffd070', c: '#ff8a40', A: '#b08a5a',
+        G: '#d8d0bc', M: '#d0604a',                                   // 들판: G 선돌 고리, M 버섯 고리
+        J: '#d07060', N: '#6a8ac0', K: '#a07a4a', D: '#e8e0d0' };   // 마을: 장터 가판대·깃발 기둥·이정표·빨랫줄
+    // 오픈월드: 구역마다 바닥·숲 벽 색을 달리 (언덕은 마른 황록·바위, 늪은 짙은 올리브, 초원은 밝은 연두, 숲은 짙은 초록)
+    const zoneFloor = { village: '#62884a', meadow: '#72a24c', woods: '#4a6c38', marsh: '#4c6442', hills: '#8a8a5c' };
+    const zoneWall = { village: '#1f3a22', meadow: '#34572c', woods: '#16301a', marsh: '#24331f', hills: '#5c5a4e' };
     const k = CELL * ppm;
     for (let z = 0; z < World.rows; z++) {
       for (let x = 0; x < World.cols; x++) {
-        const ch = World.data[z][x];
-        g.fillStyle = colors[ch] || floor;
+        const ch = World.data[z][x], zone = World.biomeMax((x + 0.5) * CELL, (z + 0.5) * CELL);
+        g.fillStyle = (zone && ch === '#' ? zoneWall[zone] : null) || colors[ch] || (zone && zoneFloor[zone]) || floor;
         g.fillRect(x * k, z * k, k + 0.5, k + 0.5);
         const dot = dots[ch];
         if (dot) {
@@ -1106,6 +1111,52 @@ const UI = {
     g.fill();
     const na = -player.yaw - Math.PI / 2 - Math.PI / 2;   // 북쪽(-z) 표시
     this.text('N', cx + Math.cos(na) * (R - 10 * s), cy + Math.sin(na) * (R - 10 * s), 12, '#ffe08a', 'center');
+    this.drawDayClock(cx, cy, R);
+  },
+
+  // 미니맵 오른쪽 아래의 작은 해·달 표시 (오픈월드의 하루 시각, atmos.js). 바깥 고리는 하루가 얼마나 지났는지
+  drawDayClock(cx, cy, R) {
+    if (!Atmos.open || CONFIG.world.dayNight === false) return;
+    const g = this.g, s = this.s, r = 12 * s, t = Atmos.time, n = Atmos.night;
+    const x = cx + Math.cos(Math.PI / 4) * R, y = cy + Math.sin(Math.PI / 4) * R;
+    const sky = n > 0.5 ? '#1d2750' : t > 0.53 && t < 0.69 ? '#e8905e' : t > 0.88 ? '#dc90ae' : '#7fb6e8';   // 낮 하늘 · 노을 · 밤 · 새벽
+    g.save();
+    g.fillStyle = sky;
+    g.strokeStyle = 'rgba(232, 196, 120, 0.9)';
+    g.lineWidth = 2 * s;
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.fill();
+    g.stroke();
+    g.strokeStyle = 'rgba(255, 240, 200, 0.85)';   // 하루 진행 고리 (위에서 시계 방향)
+    g.lineWidth = 2 * s;
+    g.beginPath();
+    g.arc(x, y, r + 3.5 * s, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * t);
+    g.stroke();
+    if (n > 0.5) {   // 초승달
+      g.fillStyle = '#f4f0d8';
+      g.beginPath();
+      g.arc(x, y, r * 0.58, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = sky;
+      g.beginPath();
+      g.arc(x + r * 0.3, y - r * 0.2, r * 0.5, 0, Math.PI * 2);
+      g.fill();
+    } else {   // 해: 둥근 해 + 빛살 여덟 개
+      g.fillStyle = g.strokeStyle = '#ffd86a';
+      g.lineWidth = 1.6 * s;
+      g.beginPath();
+      g.arc(x, y, r * 0.36, 0, Math.PI * 2);
+      g.fill();
+      g.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        g.moveTo(x + Math.cos(a) * r * 0.52, y + Math.sin(a) * r * 0.52);
+        g.lineTo(x + Math.cos(a) * r * 0.76, y + Math.sin(a) * r * 0.76);
+      }
+      g.stroke();
+    }
+    g.restore();
   },
 
   // 이어 하기로 시작했을 때 처음 10초 동안, 그리고 마지막 구역까지 끝냈을 때: '처음부터' 버튼 (누르면 제1장부터)

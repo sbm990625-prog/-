@@ -18,6 +18,7 @@ uniform float uGrass;       // 1이면 풀: 바람 물결에 눕고, 전사 주�
 uniform vec3 uPlayerPos;
 uniform vec3 uGrassEye;     // 카메라 위치 (먼 풀을 줄여 숨길 때)
 uniform vec2 uGrassLod;     // x: 이보다 먼 곳은 작은 풀잎을 없앰, y: 풀을 그리는 끝 거리 (0이면 끔)
+uniform vec2 uGrassFade;    // x: 풀 포기가 하나둘 사라지기 시작하는 거리 (끝 거리에 대한 비율), y: 먼 포기를 옆으로 넓히는 정도
 uniform vec3 uBillR;        // 잎 판을 세울 방향: 화면 오른쪽
 uniform vec3 uBillU;        // 화면 위쪽
 float gGust;                // 지금 이 자리를 지나는 바람 물결의 세기 (0~1)
@@ -27,15 +28,29 @@ vec3 instRot(vec3 p) {
   return vec3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
 }
 
+// 풀 포기마다 정해진 0~1 난수 (위치 숫자의 비트로 계산: map.js의 tuftRand와 똑같은 값)
+float tuftRand(vec2 xz) {
+  uvec2 b = floatBitsToUint(xz);
+  uint h = (b.x * 0x9E3779B1u) ^ (b.y * 0x85EBCA77u);
+  h ^= h >> 15u;
+  h *= 0x2C1B3C6Du;
+  h ^= h >> 12u;
+  return float(h >> 8u) * (1.0 / 16777216.0);
+}
+
 vec4 worldPos() {
   vec3 p = aPos;
   float grow = 1.0;
   if (uGrass > 0.5 && uGrassLod.y > 0.0) {
-    // 멀어질수록 풀을 땅속으로 줄여 숨김 (그리는 거리 끝에서 툭 끊기지 않게). 먼 구역에서 빠지는 작은 잎(무늬 좌표 x = 1)은 미리 줄여 둠
+    // 멀어질수록 풀을 땅속으로 줄여 숨김. 포기마다 사라지는 거리가 달라서 멀수록 하나둘 성겨짐
+    // (모두 같은 거리에서 사라지면 풀밭 끝이 둥근 테두리처럼 보임). 먼 구역에서 빠지는 작은 잎(무늬 좌표 x = 1)은 미리 줄여 둠
     float d = distance(aInst0.xyz, uGrassEye);
-    grow = 1.0 - smoothstep(uGrassLod.y * 0.72, uGrassLod.y, d);
+    float fadeAt = uGrassLod.y * mix(uGrassFade.x, 1.0, sqrt(tuftRand(aInst0.xz)));   // 이 포기가 다 사라지는 거리 (render.js drawWorld가 같은 식으로 다 사라진 포기를 건너뜀)
+    grow = 1.0 - smoothstep(fadeAt - uGrassLod.y * 0.1, fadeAt, d);
     if (aUV.x > 0.5 && uGrassLod.x > 0.0) grow *= 1.0 - smoothstep(uGrassLod.x * 0.6, uGrassLod.x, d);
     p.y *= grow;
+    p.xz *= 1.0 + uGrassFade.y * smoothstep(uGrassLod.y * 0.4, uGrassLod.y, d);   // 성겨진 먼 풀밭이 비어 보이지 않게 남은 포기를 조금 넓힘
+    if (grow <= 0.0) p = vec3(0.0);   // 다 사라진 포기는 점 하나로 모음 (땅에 납작하게 깔리지 않고, 그릴 것도 없음)
   }
   vec4 w = uModel * vec4(instRot(p * aInst1.x) + aInst0.xyz, 1.0);
   w.xyz += (uBillR * aCorner.x + uBillU * aCorner.y) * (aCorner.z * aInst1.x);   // 잎 판은 늘 보는 쪽을 향해 세움
@@ -109,16 +124,23 @@ float pcf(sampler2DShadow sm, vec3 p, float radius, float bias) {
   }
   return s / float(gTaps);
 }
+// 촘촘한 지도(전사 주변)를 먼저 봄: 그 안쪽이면 넓은 지도는 읽지 않음 (결과는 예전과 같고, 전사 주변 땅의 계산이 절반)
 float shadowAt(vec3 w) {
+  vec4 cn = uLightVPNear * vec4(w, 1.0);
+  vec3 pn = cn.xyz / cn.w * 0.5 + 0.5;
+  float edgeN = max(abs(pn.x - 0.5), abs(pn.y - 0.5)) * 2.0;
+  bool inNear = edgeN < 1.0 && pn.z < 1.0;
+  float sn = 0.0;
+  if (inNear) {
+    sn = pcf(uShadowNear, pn, 2.5, 0.0008);
+    if (edgeN <= 0.75) return sn;   // 섞는 띠(0.75~1)보다 안쪽은 촘촘한 지도만
+  }
   vec4 cf = uLightVP * vec4(w, 1.0);
   vec3 pf = cf.xyz / cf.w * 0.5 + 0.5;
   float edgeF = max(abs(pf.x - 0.5), abs(pf.y - 0.5)) * 2.0;
   float sf = uShadowOutside;
   if (edgeF < 1.0 && pf.z < 1.0) sf = mix(pcf(uShadowMap, pf, 1.6, 0.0004), uShadowOutside, smoothstep(0.85, 1.0, edgeF));
-  vec4 cn = uLightVPNear * vec4(w, 1.0);
-  vec3 pn = cn.xyz / cn.w * 0.5 + 0.5;
-  float edgeN = max(abs(pn.x - 0.5), abs(pn.y - 0.5)) * 2.0;
-  if (edgeN < 1.0 && pn.z < 1.0) return mix(pcf(uShadowNear, pn, 2.5, 0.0008), sf, smoothstep(0.75, 1.0, edgeN));
+  if (inNear) return mix(sn, sf, smoothstep(0.75, 1.0, edgeN));
   return sf;
 }
 `;
@@ -127,11 +149,12 @@ float shadowAt(vec3 w) {
 const GLSL_ENV = `
 // 구름 그림자: 땅 위를 천천히 흘러감 (1 = 햇빛, 0.5 = 그늘). uClouds가 0이면 없음 (동굴)
 uniform float uClouds;
+uniform vec4 uCloudShadow;   // x 얼룩 크기 (작을수록 큰 얼룩), y·z 그늘이 시작·가득 차는 문턱 (사이가 넓을수록 경계가 부드러움), w 짙기 (LIGHTING.cloudShadow)
 float cloudShadow(vec3 w) {
   if (uClouds < 0.5) return 1.0;
-  vec2 p = w.xz * 0.015 + uTime * vec2(0.02, 0.008);
+  vec2 p = w.xz * uCloudShadow.x + uTime * vec2(0.02, 0.008);
   float c = vnoise(p) * 0.55 + vnoise(p * 2.1 + 7.3) * 0.3 + vnoise(p * 4.3 - 2.1) * 0.15;
-  return 1.0 - smoothstep(0.5, 0.68, c) * 0.3;   // (머리 위 하늘은 대체로 맑아서 그늘도 옅게)
+  return 1.0 - smoothstep(uCloudShadow.y, uCloudShadow.z, c) * uCloudShadow.w;   // (머리 위 하늘은 대체로 맑아서 그늘도 옅게)
 }
 // 물속 바닥에 일렁이는 빛 그물 무늬
 float caustic(vec2 p) {
@@ -181,6 +204,7 @@ void main() {
 
   worldFS: `#version 300 es
 precision highp float;
+precision highp int;   // 꽃밭 난수(mapHash)의 정수 곱셈이 휴대폰에서도 map.js와 똑같게
 precision highp sampler2DShadow;
 in vec3 vWorld;
 in vec3 vNormal;
@@ -206,6 +230,11 @@ uniform vec3 uPlayerPos;   // 용사 위치 (y = 가슴 높이): 카메라와 �
 uniform float uTime;
 uniform float uWaterLevel; // 연못 수면 높이 (물속 바닥에 빛 무늬)
 uniform float uMistBase;   // 이 높이 근처 낮은 곳에 옅은 물안개
+uniform vec2 uMist;        // 물안개: x 짙기, y 높이에 따라 옅어지는 빠르기 (낮 숲 0.3, 1.6 / 늪지는 짙고 높게)
+uniform float uHazeStart;  // 이 거리(m)부터 먼 공기가 덮임 (가까운 나무·집은 제 색 그대로)
+uniform float uNight;      // 밤인 정도 (0~1): 안개가 달 쪽으로 따뜻하게 물들지 않게
+uniform vec3 uSkySun;      // 하늘에 그린 해 자리 (먼 안개의 노을빛을 하늘과 같은 쪽에)
+uniform float uGlowK;      // 스스로 빛나는 부분(창문·등불 유리)의 밝기 배율 (밤엔 세게)
 uniform vec4 uHaze;        // 공기 원근감: rgb 먼 언덕·산이 잠기는 푸른 공기 색, w 짙기 (0이면 끔: 노을·동굴)
 uniform float uAlphaOut;   // 출력 알파: 0 = 세상 물체, 0.25 = 1인칭 손·검 (후처리에서 구분)
 uniform float uFlash;      // 맞았을 때 하얗게 번쩍 (0~1)
@@ -237,6 +266,74 @@ ${GLSL_ENV}
 
 // 땅: 붓으로 칠한 듯한 얼룩과 붓 자국, 흙길엔 자갈
 // gold: 금빛 마른 풀밭 정도 (땅 정점 색의 네 번째 값, map.js goldAmount)
+// 오픈월드 언덕: 땅 모델의 무늬 좌표 y = 바위가 드러난 정도 (map.js rockAmount) → 그 자리는 바위 결·지층·이끼로 그림
+uniform vec3 uGoldHue[2];   // 마른 풀밭 색 [옅은 쪽, 짙은 쪽] (테마별 LIGHTING.goldHue: 낮은 밀짚빛, 노을은 주황빛)
+vec3 rockTexture(vec3 base, vec3 w, vec3 n);   // (아래에 있음)
+
+// ---- 구역별 풍경: 마을 돌바닥 (땅 무늬 좌표 x > 0), 초원 꽃밭의 먼 꽃 점 (무늬 좌표 x < 0) ----
+uniform float uCobble;        // 1이면 마을 돌바닥에 둥근 돌·줄눈 무늬 (0이면 돌 색만: 휴대폰, config.js cobbles)
+uniform vec3 uCarpetHue[5];   // 초원 꽃밭 색 (map.js MEADOW_FLOWERS)
+
+// 지도 쪽(map.js Utils.noise2)과 똑같은 부드러운 난수: 정수 계산을 그대로 옮겨서 꽃밭 주인공 색을 꽃 모델과 똑같이 고름
+float mapHash(vec2 c) {
+  uint h = uint(int(c.x)) * 374761393u + uint(int(c.y)) * 668265263u;
+  h = (h ^ (h >> 13u)) * 1274126177u;
+  return float(h ^ (h >> 16u)) / 4294967296.0;
+}
+float mapNoise(vec2 p) {
+  vec2 i = floor(p), f = p - i, u = f * f * (3.0 - 2.0 * f);
+  float a = mapHash(i), b = mapHash(i + vec2(1.0, 0.0)), c = mapHash(i + vec2(0.0, 1.0)), d = mapHash(i + vec2(1.0, 1.0));
+  return a + (b - a) * u.x + (c - a) * u.y + (a - b - c + d) * u.x * u.y;
+}
+// 그 자리 꽃밭의 주인공 색 (map.js carpetHue와 같은 계산: 9m쯤 되는 구불구불한 덩어리마다 한 가지 색)
+vec3 carpetHue(vec2 p) {
+  vec2 w = p + (vec2(mapNoise(p * 0.05 + vec2(3.0, 0.0)), mapNoise(p * 0.05 + vec2(0.0, 5.0))) - 0.5) * 14.0;
+  return uCarpetHue[min(4, int(floor(mapHash(floor(w / 9.0)) * 5.0)))];
+}
+// 둥근 돌바닥: 가장 가까운 돌 중심 두 개까지의 거리 (x, y: 둘의 차가 작으면 돌 사이 줄눈)와 돌마다 다른 난수 (z, w)
+vec4 cobbleCell(vec2 p) {
+  vec2 i = floor(p), f = p - i, id = vec2(0.0);
+  float f1 = 9.0, f2 = 9.0;
+  for (int y = -1; y <= 1; y++) {
+    for (int x = -1; x <= 1; x++) {
+      vec2 g = vec2(float(x), float(y));
+      vec2 r = g + vec2(hash12(i + g), hash12(i + g + 17.3)) * 0.75 + 0.125 - f;
+      float d = dot(r, r);
+      if (d < f1) { f2 = f1; f1 = d; id = i + g; } else if (d < f2) f2 = d;
+    }
+  }
+  return vec4(sqrt(f1), sqrt(f2), hash12(id + 3.7), hash12(id * 1.7 + 11.1));
+}
+// 마을 돌바닥: 크기가 제각각인 따뜻한·푸른 회색 돌 + 어두운 흙 줄눈. 가장자리는 돌이 하나씩 빠져 다져진 흙이 드러남
+// fw: 화소 하나가 덮는 땅 넓이 (fwidth는 갈림길 밖 groundTexture에서 미리 구해 넘김: 갈림길 안에선 값이 틀어질 수 있음)
+vec3 cobbleGround(vec3 c, vec3 base, vec2 p, float cob, float big, float mid, float fw) {
+  float m = smoothstep(0.3, 0.55, cob + (big - 0.5) * 0.4 + (mid - 0.5) * 0.2);
+  if (m <= 0.0) return c;
+  if (uCobble < 0.5) return mix(c, base * (0.92 + 0.16 * mid), m * 0.6);   // 무늬를 끄면 붓 자국만 줄인 돌 색
+  vec2 q = p * 2.1;   // 돌 하나 크기 약 0.5m
+  vec4 cc = cobbleCell(q);
+  float aa = clamp(fw * 2.1 * 1.5, 0.0, 1.0);                          // 멀리서 돌이 화소만큼 작아지면 평균 색으로 (자글거림 방지)
+  float stone = smoothstep(0.04, 0.2 + aa * 0.3, cc.y - cc.x);         // 1 = 돌, 0 = 줄눈 (돌 가장자리는 둥글게 어두워짐)
+  vec3 sc = base * (0.74 + 0.32 * cc.z) * mix(vec3(1.02, 0.99, 0.94), vec3(0.88, 0.95, 1.08), cc.w);   // 따뜻한 회색 ~ 푸른 회색 돌
+  sc *= 1.0 + 0.35 * (0.4 - cc.x);                                     // 돌 가운데가 볼록해 밝게
+  vec3 grout = base * vec3(0.5, 0.47, 0.42), earth = base * vec3(0.85, 0.76, 0.62);
+  float keep = smoothstep(cc.w - 0.08, cc.w + 0.08, m * 1.25 - 0.12);  // 가장자리: 돌이 빠진 자리는 흙
+  vec3 cob2 = mix(earth, mix(grout, sc, stone), keep);
+  cob2 = mix(cob2, mix(grout, base, 0.72), aa);
+  return mix(c, cob2, m);
+}
+// 초원 꽃밭: 꽃 모델을 그리지 않는 먼 곳에서도 꽃밭 색이 보이게 땅에 작은 꽃 점 (바로 앞 몇 m는 꽃 모델이 있으니 점을 찍지 않음: 둥근 물방울무늬처럼 보이지 않게)
+vec3 carpetDots(vec3 c, vec2 p, float carpet, float fw) {
+  vec2 q = p * 5.0, cell = floor(q);
+  vec2 fp = q - cell - 0.5 - (vec2(hash12(cell + 7.3), hash12(cell + 3.1)) - 0.5) * 0.4;
+  float dist = distance(vWorld, uCamPos), far = smoothstep(12.0, 32.0, dist);
+  float r = mix(0.27, 0.4, far);                                         // 멀수록 꽃 점을 크게 (꽃밭 색이 먼 곳에서도 읽히게)
+  float dotm = step(1.0 - carpet * 0.8, hash12(cell)) * smoothstep(r + 0.07, r - 0.07, length(fp));
+  float aa = clamp(fw * 5.0 * 0.8, 0.0, 1.0);
+  float k = mix(dotm, carpet * 0.65, aa);                                // 점이 화소보다 작아지면 고르게 물든 색으로
+  return mix(c, carpetHue(p) * 0.95, k * (0.3 + 0.7 * far) * smoothstep(6.0, 14.0, dist));
+}
+// ---- (구역별 풍경 끝) ----
 vec3 groundTexture(vec3 base, vec2 p, float gold) {
   float big = fbm(p * 0.22);
   float mid = vnoise(p * 1.3);
@@ -248,13 +345,23 @@ vec3 groundTexture(vec3 base, vec2 p, float gold) {
   // 금빛 마른 풀밭: 경계는 붓 자국을 따라 들쭉날쭉하지만 또렷하게. 밝기는 원래 풀빛을 따라가서 나무 밑 그늘도 그대로
   float lum = dot(c, vec3(0.3, 0.6, 0.1));
   float gm = smoothstep(0.45, 0.6, gold + (mid - 0.5) * 0.35 + (stroke - 0.5) * 0.3) * (1.0 - dirt);
-  vec3 goldHue = mix(vec3(1.55, 1.0, 0.1), vec3(2.0, 0.84, 0.06), smoothstep(0.3, 0.7, big));   // 황록빛 ~ 주황빛 금색
+  vec3 goldHue = mix(uGoldHue[0], uGoldHue[1], smoothstep(0.3, 0.7, big));   // 옅은 쪽 ~ 짙은 쪽 (낮: 밀짚빛, 노을: 황록빛 ~ 주황빛 금색)
   float fringe = smoothstep(0.12, 0.4, gold) * (1.0 - gm) * (1.0 - dirt);                     // 풀밭 둘레는 회녹색
   c = mix(c, vec3(lum) * vec3(0.92, 1.06, 0.9), fringe * 0.45);
   c = mix(c, goldHue * lum * (0.85 + 0.3 * stroke), gm);
   float peb = vnoise(p * 9.0);
   c = mix(c, c * 1.35, dirt * smoothstep(0.74, 0.8, peb));            // 밝은 자갈
   c = mix(c, c * 0.7, dirt * smoothstep(0.76, 0.84, vnoise(p * 9.0 + 3.7)));
+  float fw = fwidth(p.x);   // (돌바닥·꽃 점의 자글거림 방지용. 갈림길 밖에서 구함)
+  if (vUV.x > 0.01) c = cobbleGround(c, base, p, vUV.x, big, mid, fw);   // 마을 돌바닥
+  else if (vUV.x < -0.01) c = carpetDots(c, p, -vUV.x, fw);              // 초원 꽃밭
+  if (vUV.y > 0.001) {   // 언덕 비탈의 드러난 바위: 경계는 붓 자국처럼 들쭉날쭉, 턱 밑은 흘러내린 자갈 알갱이
+    vec3 nn = normalize(vNormal);
+    float rk = smoothstep(0.3, 0.6, vUV.y + (mid - 0.5) * 0.35 + (stroke - 0.5) * 0.2);
+    float grit = smoothstep(0.62, 0.7, vnoise(p * 6.5)) * smoothstep(0.05, 0.3, vUV.y) * (1.0 - rk);
+    c = mix(c, base * vec3(1.2, 1.12, 1.0), grit * 0.6);
+    c = mix(c, rockTexture(base * 1.1, vWorld, nn), rk);
+  }
   return c;
 }
 
@@ -425,22 +532,23 @@ void main() {
     float fres = pow(1.0 - max(dot(n, v), 0.0), 2.0);
     col = col * 0.5 + base * (0.9 + 0.25 * sin(uTime * 1.7 + vWorld.x * 2.0 + vWorld.z)) + base * fres * 1.6;
   }
-  if (mat == 6) col = (uGlowSwap.w > 0.5 ? uGlowSwap.rgb : base) * (2.6 + 0.6 * sin(uTime * 2.6 + vWorld.y * 3.0));   // 스스로 빛나는 부분 (룬, 괴물 눈): 숨 쉬듯 은은하게 밝아졌다 어두워짐
+  if (mat == 6) col = (uGlowSwap.w > 0.5 ? uGlowSwap.rgb : base) * (2.6 + 0.6 * sin(uTime * 2.6 + vWorld.y * 3.0)) * uGlowK;   // 스스로 빛나는 부분 (룬, 괴물 눈): 숨 쉬듯 은은하게 밝아졌다 어두워짐
   col = mix(col, vec3(2.4), uFlash);
   float dist = length(vWorld - uCamPos);
   float fog = 1.0 - exp(-pow(dist * uFogDensity, 2.0));
-  vec3 fogC = sunFog(uFogColor, -v, uSunDir);
+  vec3 fogC = sunFog(uFogColor, -v, uSkySun);
+  fogC = mix(fogC, uFogColor, uNight);   // 밤: 달 쪽 안개는 해처럼 주황빛으로 물들지 않음
   if (uHaze.w > 0.0) {
     // 공기 원근감: 멀수록 색이 바래고 대비가 줄다가, 먼 언덕·산은 푸른 공기 색에 잠김
     // 높은 곳은 공기가 옅어 덜 흐려짐 → 산등성이가 겹겹이 보임
     float farK = smoothstep(25.0, 260.0, dist);
-    float air = 1.0 - exp(-max(dist - 20.0, 0.0) * uHaze.w * exp(-max(vWorld.y, 0.0) * 0.003));
+    float air = 1.0 - exp(-max(dist - uHazeStart, 0.0) * uHaze.w * exp(-max(vWorld.y, 0.0) * 0.003));
     col = mix(col, vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), air * 0.55);
     col = mix(col, uHaze.rgb, air * farK);
     fogC = mix(vec3(dot(fogC, vec3(0.2126, 0.7152, 0.0722))), fogC, 0.15 + 0.85 * farK);   // 가까운 안개는 무채색에 가깝게 (초록 숲이 청록으로 물들지 않게)
   }
   col = mix(col, fogC, fog);
-  float mist = (1.0 - exp(-dist * 0.04)) * exp(-max(vWorld.y - uMistBase, 0.0) * 1.6) * 0.3;
+  float mist = min((1.0 - exp(-dist * 0.04)) * exp(-max(vWorld.y - uMistBase, 0.0) * uMist.y) * uMist.x, 0.8);   // (짙은 늪지 새벽에도 80%까지만)
   col = mix(col, (uHaze.w > 0.0 ? fogC : uFogColor) * 1.1, mist);   // 물안개 (공기 원근감이 있으면 희뿌옇게)
   if (mat != 6) col = mix(col, col * pow(uDimTint, vec3(2.2)) * 0.6, uDim);   // (물들일 색은 화면 밝기 기준이라 빛 계산용으로 바꿔서 곱함)
   outColor = vec4(finish(col), uCamFade > 1.5 ? keep : uAlphaOut);   // 알파: 0 = 물체, 1 = 하늘 (빛줄기 계산에 사용). 반투명 그림에서는 비치는 정도
@@ -517,19 +625,23 @@ void main() {
 }`,
 
   // 물: 얕은 곳은 맑은 청록, 깊은 곳은 짙은 파랑 + 하늘 반사 + 반짝임 + 물가 거품
+  // 늪 물(정점 색 r = 늪인 정도)은 흐린 올리브·갈색 + 개구리밥, 거품과 반사는 약하게
   waterVS: `#version 300 es
 layout(location = 0) in vec3 aPos;
+layout(location = 2) in vec4 aColor;
 layout(location = 3) in float aDepth;
 uniform mat4 uProj;
 uniform mat4 uView;
 uniform float uTime;
 out vec3 vWorld;
 out float vDepth;
+out float vMurk;
 void main() {
   vec3 p = aPos;
   p.y += sin(p.x * 1.3 + uTime * 1.5) * 0.012 + cos(p.z * 1.1 + uTime * 1.2) * 0.012;
   vWorld = p;
   vDepth = aDepth;
+  vMurk = aColor.r;
   gl_Position = uProj * uView * vec4(p, 1.0);
 }`,
 
@@ -538,6 +650,7 @@ precision highp float;
 precision highp sampler2DShadow;
 in vec3 vWorld;
 in float vDepth;
+in float vMurk;
 uniform vec3 uCamPos;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
@@ -550,6 +663,14 @@ uniform float uHasRefl;
 uniform vec2 uScreen;       // 화면 크기 (픽셀)
 uniform float uDim;         // 궁극기 때 어둡게 물들임
 uniform vec3 uDimTint;
+uniform vec3 uMurk[3];      // 늪 물 색: [얕은 곳, 깊은 곳, 개구리밥] (LIGHTING.water)
+uniform vec4 uHaze;         // 공기 원근감 (땅과 같은 값: 먼 물도 땅처럼 푸른 공기에 잠김)
+uniform float uMistBase;    // 물안개 높이 (= 수면)
+uniform vec2 uMist;         // 물안개 짙기·높이 (땅과 같은 값: 늪지는 짙게)
+uniform float uHazeStart;   // 먼 공기가 시작되는 거리 (땅과 같은 값)
+uniform float uNight;       // 밤인 정도 (안개가 달 쪽으로 주황빛이 되지 않게)
+uniform vec3 uSkySun;       // 하늘에 해가 그려지는 방향 (노을빛 안개 쪽)
+uniform float uWaterLight;  // 물빛 밝기 (낮 1, 밤엔 어둡게: 물이 혼자 빛나 보이지 않게)
 out vec4 outColor;
 ${GLSL_NOISE}
 ${GLSL_FINISH}
@@ -562,29 +683,50 @@ void main() {
   vec2 p = vWorld.xz;
   float e = 0.04;
   float h0 = waveH(p);
-  vec3 n = normalize(vec3((h0 - waveH(p + vec2(e, 0.0))) / e * 0.12, 1.0, (h0 - waveH(p + vec2(0.0, e))) / e * 0.12));
+  float murk = clamp(vMurk, 0.0, 1.0);
+  vec3 n = normalize(vec3((h0 - waveH(p + vec2(e, 0.0))) / e * 0.12 * (1.0 - 0.5 * murk), 1.0, (h0 - waveH(p + vec2(0.0, e))) / e * 0.12 * (1.0 - 0.5 * murk)));   // 늪 물은 잔잔하게
   vec3 v = normalize(uCamPos - vWorld);
   float fres = 0.03 + 0.97 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
   vec3 r = reflect(-v, n);
-  vec3 horizon = sunFog(uFogColor, r, uSunDir);
+  vec3 horizon = mix(sunFog(uFogColor, r, uSkySun), uFogColor, uNight);
   vec3 sky = mix(horizon, uZenith, smoothstep(0.0, 0.5, r.y));
   float sh = shadowAt(vWorld) * cloudShadow(vWorld);
   float depth = max(vDepth, 0.0);
   vec3 body = mix(vec3(0.1, 0.42, 0.38), vec3(0.01, 0.07, 0.13), smoothstep(0.0, 1.4, depth));
-  body *= 0.55 + 0.45 * sh;
+  body = mix(body, mix(uMurk[0], uMurk[1], smoothstep(0.0, 0.6, depth)), murk);   // 늪: 흐린 올리브 ~ 짙은 갈색
+  body *= (0.55 + 0.45 * sh) * uWaterLight;
   // 비친 모습: 거꾸로 그린 장면을 물결만큼 일렁이게 (없으면 하늘색만)
   vec3 refl = finish(sky);
   if (uHasRefl > 0.5) refl = texture(uRefl, gl_FragCoord.xy / uScreen + n.xz * 0.035).rgb;
-  float k = clamp(0.12 + fres * 0.88, 0.0, 1.0);
+  float k = clamp(0.12 + fres * 0.88, 0.0, 1.0) * (1.0 - 0.15 * murk);
   vec3 col = mix(finish(body), refl, k);   // (이 아래는 화면 밝기 기준으로 계산)
   vec3 h = normalize(uSunDir + v);
-  col += vec3(1.0, 0.95, 0.82) * smoothstep(0.988, 0.996, dot(n, h)) * sh;   // 반짝이는 햇살
+  col += mix(vec3(0.65, 0.72, 0.9), vec3(1.0, 0.95, 0.82), uWaterLight) * uWaterLight * smoothstep(0.988, 0.996, dot(n, h)) * sh * (1.0 - 0.5 * murk);   // 반짝이는 햇살 (밤엔 옅은 달빛)
   float foam = smoothstep(0.22, 0.02, depth + (vnoise(p * 7.0 + uTime * 0.6) - 0.5) * 0.12);
-  foam *= 0.6 + 0.4 * sin(depth * 40.0 - uTime * 3.0);
-  col = mix(col, vec3(0.97), clamp(foam, 0.0, 1.0) * 0.85);
+  foam *= (0.6 + 0.4 * sin(depth * 40.0 - uTime * 3.0)) * (1.0 - 0.75 * murk);   // 늪 물가는 거품 대신 진흙에 스며듦
+  col = mix(col, vec3(0.97) * (0.3 + 0.7 * uWaterLight), clamp(foam, 0.0, 1.0) * 0.85);   // (밤엔 거품도 어둡게)
   float alpha = clamp(0.35 + k * 0.6 + smoothstep(0.0, 1.0, depth) * 0.45 + foam, 0.0, 1.0);   // 얕은 곳은 바닥이 비침
+  alpha = mix(alpha, clamp(0.5 + smoothstep(0.0, 0.25, depth) * 0.35 + k * 0.4, 0.0, 1.0), murk);   // 늪 물은 흐려서 금방 바닥이 안 보임
+  if (murk > 0.01) {   // 개구리밥: 물 위에 떠 있는 자잘한 연둣빛 잎 무더기 (물가 쪽과 고인 곳에 몰림)
+    float clump = vnoise(p * 0.45 + 3.0) * 0.7 + vnoise(p * 1.3) * 0.3;
+    float dw = smoothstep(0.62, 0.7, clump + 0.3 * vnoise(p * 9.0) - 0.15 + smoothstep(0.3, 0.05, depth) * 0.2) * murk * smoothstep(0.02, 0.12, depth);
+    dw *= smoothstep(0.35, 0.55, vnoise(p * 23.0) + 0.3);   // 잎 사이 틈
+    vec3 leaf = uMurk[2] * ((0.35 + 0.65 * sh) * uSunColor * 0.7 + 0.3 * uWaterLight);
+    col = mix(col, finish(leaf * (0.85 + 0.3 * vnoise(p * 41.0))), dw * 0.92);
+    alpha = max(alpha, dw);
+  }
   float dist = length(vWorld - uCamPos);
-  col = mix(col, finish(sunFog(uFogColor, -v, uSunDir)), 1.0 - exp(-pow(dist * uFogDensity, 2.0)));
+  vec3 fogC = mix(sunFog(uFogColor, -v, uSkySun), uFogColor, uNight);   // (땅과 같은 식)
+  if (uHaze.w > 0.0) {   // 공기 원근감 (땅과 같은 식, 여기 색은 화면 밝기 기준이라 공기 색만 바꿔서 섞음)
+    float farK = smoothstep(25.0, 260.0, dist);
+    float air = 1.0 - exp(-max(dist - uHazeStart, 0.0) * uHaze.w * exp(-max(vWorld.y, 0.0) * 0.003));
+    col = mix(col, vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), air * 0.45);
+    col = mix(col, finish(uHaze.rgb), air * farK);
+    fogC = mix(vec3(dot(fogC, vec3(0.2126, 0.7152, 0.0722))), fogC, 0.15 + 0.85 * farK);
+  }
+  col = mix(col, finish(fogC), 1.0 - exp(-pow(dist * uFogDensity, 2.0)));
+  float mist = min((1.0 - exp(-dist * 0.04)) * exp(-max(vWorld.y - uMistBase, 0.0) * uMist.y) * uMist.x, 0.8);   // 수면 위 물안개 (땅과 같은 식: 늪지는 짙게)
+  col = mix(col, finish((uHaze.w > 0.0 ? fogC : uFogColor) * 1.1), mist);
   col = mix(col, col * uDimTint * 0.78, uDim);   // (여기 색은 이미 화면 밝기 기준)
   outColor = vec4(col, alpha);
 }`,
@@ -612,6 +754,9 @@ uniform vec3 uDimTint;
 uniform vec3 uCloudLit;    // 구름의 볕 받은 쪽 / 그늘 색 (낮: 흰색·푸른 회색, 노을: 주황·보라)
 uniform vec3 uCloudShade;
 uniform vec4 uCloudCfg;    // x 뭉게구름 양 (0이면 없음), y 구름 꼭대기 높이, z 새털구름 양, w 구름 밑동 높이 (산 뒤에 숨는 곳)
+uniform float uNight;      // 밤인 정도 (0~1): 별과 달이 나타남
+uniform vec3 uMoonDir;     // 달 방향
+uniform float uSunDisc;    // 해를 그리는 정도 (어스름·밤엔 0 → 달 자리에 '두 번째 해'가 번지지 않게)
 out vec4 outColor;
 ${GLSL_NOISE}
 ${GLSL_FINISH}
@@ -628,9 +773,10 @@ void main() {
   vec3 dir = normalize(p.xyz / p.w);
   float y = dir.y;
   vec3 horizon = sunFog(uFogColor, dir, uSunDir);
+  horizon = mix(horizon, uFogColor, uNight);   // 밤: 달 쪽 지평선이 해처럼 주황빛으로 물들지 않음
   vec3 col = mix(horizon, uZenith, pow(smoothstep(-0.02, 0.6, y), 0.8));
   float sd = max(dot(dir, uSunDir), 0.0);
-  col += uSunColor * (pow(sd, 1500.0) * 40.0 + pow(sd, 60.0) * 0.4 + pow(sd, 6.0) * 0.07);
+  col += uSunColor * uSunDisc * (pow(sd, 1500.0) * 40.0 + pow(sd, 60.0) * 0.4 + pow(sd, 6.0) * 0.07);
 
   // 새털구름: 높은 하늘에 바람결 따라 가늘게 늘어진 구름 몇 가닥
   if (uCloudCfg.z > 0.0 && y > 0.2) {
@@ -677,6 +823,23 @@ void main() {
       cloudA = cover;
     }
   }
+  if (uNight > 0.0) {
+    // 별: 하늘을 작은 칸으로 나눠 칸마다 한 번 굴린 주사위로 별을 둠 (고르게 흩어짐). 반짝이고, 구름 뒤·지평선 근처는 숨음
+    vec3 sp = dir * 150.0;
+    vec3 cell = floor(sp);
+    float h = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+    vec3 jit = fract(vec3(h * 17.3, h * 31.7, h * 53.1)) * 0.6 + 0.2;
+    float star = step(0.955, h) * smoothstep(0.32, 0.04, length(fract(sp) - jit)) * (0.4 + 1.6 * fract(h * 97.0));
+    float tw = 0.65 + 0.35 * sin(uTime * (1.5 + fract(h * 13.0) * 4.0) + h * 80.0);
+    col += vec3(0.85, 0.92, 1.1) * star * tw * (1.0 - cloudA) * smoothstep(0.03, 0.3, y) * uNight * 1.6;
+    // 달: 크고 또렷한 원반 (옅은 얼룩무늬) + 서늘한 달무리. 구름이 지나가면 가려짐
+    float md = dot(dir, uMoonDir);
+    float disc = smoothstep(0.99935, 0.9995, md);
+    vec3 mt = dir - uMoonDir * md;   // 달 원반 위 좌표 (얼룩무늬)
+    float mott = md > 0.999 ? 0.8 + 0.2 * vnoise(vec2(mt.x + mt.y * 0.7, mt.z - mt.y * 0.5) * 260.0) : 1.0;   // (얼룩은 달 둘레에서만 계산)
+    col = mix(col, vec3(1.9, 1.95, 2.1) * mott, disc * uNight * (1.0 - 0.8 * cloudA));
+    col += (vec3(0.25, 0.3, 0.45) * pow(max(md, 0.0), 300.0) * 0.6 + vec3(0.06, 0.08, 0.14) * pow(max(md, 0.0), 12.0)) * uNight;
+  }
   col = mix(col, horizon, smoothstep(0.06, -0.02, y));
   col = mix(col, col * pow(uDimTint, vec3(2.2)) * 0.4, uDim);
   outColor = vec4(finish(col), 1.0 - 0.15 * cloudA);   // 알파 1 = 맑은 하늘, 0.85 = 두꺼운 구름 (해를 가리면 빛줄기·렌즈 빛이 구름 틈에서만 나옴)
@@ -690,6 +853,9 @@ uniform mat4 uView;
 uniform vec3 uCam;
 uniform float uTime;
 uniform float uScale;
+uniform float uBlink;     // 0 낮 꽃가루 ~ 1 밤 반딧불 (천천히 켜졌다 꺼짐)
+uniform float uSize;      // 점 크기 (낮 0.06, 반딧불은 조금 크게)
+uniform float uDensity;   // 그릴 점의 비율 (0~1, 반딧불 양)
 out float vAlpha;
 void main() {
   vec3 p = aSeed * vec3(36.0, 3.5, 36.0);
@@ -702,8 +868,14 @@ void main() {
   vec4 v = uView * vec4(w, 1.0);
   gl_Position = uProj * v;
   float d = max(-v.z, 0.3);
-  gl_PointSize = min(uScale * 0.06 / d, 24.0);
-  vAlpha = (0.55 + 0.45 * sin(uTime * 2.3 + aSeed.x * 40.0)) * clamp(1.0 - d / 18.0, 0.0, 1.0);
+  gl_PointSize = min(uScale * uSize / d, 24.0);
+  float pollen = 0.55 + 0.45 * sin(uTime * 2.3 + aSeed.x * 40.0);
+  float fly = pow(max(sin(uTime * 1.1 + aSeed.x * 40.0), 0.0), 2.0) * 1.8;   // 반딧불: 몇 초에 한 번 부드럽게 켜졌다 꺼짐
+  vAlpha = mix(pollen, fly, uBlink) * clamp(1.0 - d / 18.0, 0.0, 1.0);
+  if (fract(aSeed.x * 7.31) > uDensity) {   // 이번엔 그리지 않는 점 (화면 밖으로)
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    gl_PointSize = 0.0;
+  }
 }`,
 
   particleFS: `#version 300 es
@@ -747,12 +919,24 @@ uniform float uBaseY;
 uniform float uHeight;   // 빛줄기 높이 (모드 2)
 uniform vec3 uColor;     // 빛줄기 색 (모드 2)
 uniform vec3 uCamPos;
+uniform vec3 uLightDir;  // 햇살 기둥이 해 쪽으로 뻗은 방향 (모드 3)
 out vec4 outColor;
 ${GLSL_NOISE}
 void main() {
   vec3 col;
   float a;
-  if (uMode > 1.5) {   // 동굴 천장 구멍으로 쏟아지는 빛줄기: 가장자리는 부드럽게, 위가 진하고 바닥 쪽은 옅게, 먼지가 천천히 흐름
+  if (uMode > 2.5) {   // 숲 나무 사이로 비스듬히 내리는 햇살 기둥: 무늬 좌표 y = 땅(0) ~ 나무 위(1). 땅과 나무 위에서 스르르 사라짐
+    vec3 v = normalize(uCamPos - vWorld);
+    float soft = pow(abs(dot(normalize(vNormal), v)), 1.5);
+    float h = vUV.y;
+    float dust = 0.6 + 0.4 * vnoise(vec2(vWorld.x * 0.8 + vWorld.z * 0.6, vWorld.y * 0.7 - uTime * 0.2) * 1.3);
+    a = soft * smoothstep(0.0, 0.18, h) * smoothstep(0.95, 0.5, h) * (0.6 + 0.4 * h) * dust * 0.3;
+    a *= smoothstep(1.5, 4.0, length(vWorld - uCamPos));   // 기둥 속에 서면 화면이 번쩍이지 않게 카메라 가까이는 지움
+    // 햇빛은 앞으로 흩어짐: 해 쪽을 바라볼 때 진하고, 해를 등지고 보면 옅게
+    // (해를 등지면 기둥이 카메라 쪽으로 기울어 짧고 넓은 덩어리로 보임 → 숲이 뿌옇게 바래지 않게)
+    a *= 0.3 + 0.7 * smoothstep(-0.35, 0.55, dot(-v, uLightDir));
+    col = uColor;
+  } else if (uMode > 1.5) {   // 동굴 천장 구멍으로 쏟아지는 빛줄기: 가장자리는 부드럽게, 위가 진하고 바닥 쪽은 옅게, 먼지가 천천히 흐름
     vec3 v = normalize(uCamPos - vWorld);
     float soft = pow(abs(dot(normalize(vNormal), v)), 1.5);
     float h = clamp((vWorld.y - uBaseY) / uHeight, 0.0, 1.0);
@@ -1001,6 +1185,7 @@ in float vSeed;
 in float vAlpha;
 in vec3 vColor;
 uniform float uTime;
+uniform float uLight;   // 밤엔 어둡게 (먼지·낙엽·나비·새처럼 스스로 빛나지 않는 것만)
 out vec4 outColor;
 mat2 rot(float a) {
   float c = cos(a), s = sin(a);
@@ -1051,6 +1236,7 @@ void main() {
   }
   a *= vAlpha;
   if (a < 0.02) discard;
+  if (t <= 3) col *= uLight;
   outColor = vec4(col * a, a);
 }`,
 

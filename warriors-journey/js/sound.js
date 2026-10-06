@@ -350,6 +350,10 @@ const Sound = {
         const v = this.near(x, z, 12);
         if (v > 0 && Math.random() < 0.6) this.noiseHit(t + Math.random() * 0.3, 0.03, 'highpass', 3000, 2000, 0.07 * v, 0.8);
       }
+    } else if (Atmos.open && Atmos.night > 0.5) {   // 오픈월드의 밤: 새 대신 귀뚜라미 (짧고 높은 떨림 서너 번, 어스름엔 작게)
+      this.ambientTimer = 0.4 + Math.random() * 1.2;
+      const f = 4200 + Math.random() * 800, n = 3 + ((Math.random() * 3) | 0), v = 0.012 * Utils.clamp((Atmos.night - 0.5) / 0.4, 0.2, 1);
+      for (let i = 0; i < n; i++) this.tone(t + i * 0.06, 0.03, 'sine', f, f * 0.97, v, 0.004);
     } else {   // 숲: 짹짹 (짧게 빠르게 오르내리는 음 두세 번)
       this.ambientTimer = 1.5 + Math.random() * 3.5;
       const base = 2600 + Math.random() * 1600, n = 2 + ((Math.random() * 3) | 0), dusk = World.level.theme === 'dusk';
