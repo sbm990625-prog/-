@@ -1,0 +1,1260 @@
+// 3D 모델 만들기: 나무·바위·풀·꽃·물가 식물·먼 산·검·팔을 코드로 조립합니다.
+// 나뭇잎은 '잎 무늬 그림(텍스처)'을 붙인 작은 판을 잔뜩 꽂아 풍성하게 만듭니다.
+
+// 색의 네 번째 값 = 재질. 0~1은 금속 반짝임, 음수는 아래 재질 번호 (셰이더가 질감을 다르게 그림)
+const MAT = { LEAF: -1, CARD: -2, BARK: -3, ROCK: -4, CLOTH: -5, GLOW: -6, SKIN: -7, HAIR: -8, CRYSTAL: -9 };
+const rgb = (hex, m = 0) => Utils.color(hex, m);
+
+const COLORS = {
+  bark: rgb('#6a6450', MAT.BARK),          // 올리브빛이 도는 회갈색 줄기 (주황 갈색이 아니라 이끼 낀 나무 느낌)
+  pine: [rgb('#3e5a3e', MAT.LEAF), rgb('#46623f', MAT.LEAF), rgb('#4e6b44', MAT.LEAF), rgb('#587449', MAT.LEAF)],   // 차분한 짙은 솔잎색
+  pineUnder: rgb('#2e4030', MAT.LEAF),
+  leaf: [rgb('#5a7a3a', MAT.LEAF), rgb('#64843f', MAT.LEAF), rgb('#6f8e45', MAT.LEAF), rgb('#516e36', MAT.LEAF)],   // 볕 받으면 노르스름한 파스텔 연두
+  bushLeaf: [rgb('#4c6436', MAT.LEAF), rgb('#56703c', MAT.LEAF), rgb('#465c33', MAT.LEAF)],
+  birch: rgb('#e4e0d4', MAT.BARK),
+  birchDark: rgb('#2b2a28', MAT.BARK),
+  birchLeaf: [rgb('#6e8748', MAT.LEAF), rgb('#78904e', MAT.LEAF), rgb('#647d42', MAT.LEAF)],
+  fern: rgb('#56743c', MAT.LEAF),
+  reed: rgb('#6d7f45', MAT.LEAF),
+  cattail: rgb('#5a3a20'),
+  lily: rgb('#4f7a45', MAT.LEAF),
+  berry: rgb('#c8282c'),
+  rock: rgb('#858582', MAT.ROCK),          // 따뜻한 회색 바위 (볕 받으면 밝은 베이지)
+  woodCut: rgb('#b08a5a'),
+  mushroomCap: rgb('#c0302a'),
+  mushroomStem: rgb('#ece4d0'),
+  grassBase: rgb('#435232', MAT.LEAF),     // 풀뿌리: 탁한 올리브 (너무 어두우면 풀밭이 얼룩덜룩)
+  grassTip: rgb('#6f964e', MAT.LEAF),      // 풀끝: 볕 받으면 파스텔 연두
+  grassGoldBase: rgb('#5f6034', MAT.LEAF), // 마른 풀뿌리: 짙은 황록
+  grassGoldTip: rgb('#c2a65c', MAT.LEAF),  // 마른 풀끝: 볕 받으면 옅은 밀짚빛 (왕눈 들판처럼. 노을에선 LIGHTING.dusk.goldTuftTint로 주황빛)
+  petal: rgb('#f4f0e8'),
+  flowerCenter: rgb('#f2b630'),
+  steel: rgb('#dfe5ec', 1),
+  steelEdge: rgb('#a3adb8', 1),
+  steelDark: rgb('#5c636d', 0.5),
+  gold: rgb('#d9a93a', 0.7),
+  leather: rgb('#4a2c1a'),
+  leatherDark: rgb('#2a180d'),
+  gauntlet: rgb('#3b434e', 0.75),      // 용사 갑옷과 같은 짙은 건메탈
+  cloth: rgb('#1d2330', MAT.CLOTH),
+  runeGlow: rgb('#3fd8ff', MAT.GLOW),
+  balmung: rgb('#eaf1f9', 1),          // 발뭉 칼날 (푸른 기가 도는 은빛)
+  balmungEdge: rgb('#a8bad0', 1),
+  balmungFuller: rgb('#5d7290', 0.8),
+  rune: rgb('#58c8ff', MAT.GLOW),
+  gem: rgb('#2f8cff', MAT.GLOW),
+  blueLeather: rgb('#1f3358'),
+  snow: rgb('#d3dce8'),     // 먼 산의 눈 (햇빛에 하얗게 타지 않게 살짝 푸른 회색)
+  cliff: rgb('#6c7484'),    // 먼 산 바위 (서늘한 청회색)
+  farForest: rgb('#46644c'),            // 먼 숲 (안개에 섞이면 푸르스름한 회녹색)
+  caveRock: rgb('#6b655d', MAT.ROCK),     // 동굴 바위 (따뜻한 회갈색)
+  caveCeil: rgb('#4a4540', MAT.ROCK),     // 동굴 천장 (더 어둡게)
+  crystal: rgb('#e6f6ff', MAT.CRYSTAL),   // 수정 (색은 배치할 때 하늘빛·보랏빛으로 물들임)
+  crystalBase: rgb('#3c3a3e', MAT.ROCK),
+  iron: rgb('#3a3c40', 0.5),
+  coal: rgb('#ff7a24', MAT.GLOW),         // 횃불 화로 속 숯불
+  shroomCap: rgb('#62f0e8', MAT.GLOW),    // 빛나는 버섯 갓
+  shroomStem: rgb('#cfd8d0'),
+  // 구역별 풍경 (오픈월드)
+  crag: rgb('#a09a8c', MAT.ROCK),          // 언덕의 층진 바위 (밝은 회베이지: 셰이더가 지층·이끼를 그림)
+  willowLeaf: [rgb('#56643f', MAT.LEAF), rgb('#4f5e3b', MAT.LEAF), rgb('#5e6c45', MAT.LEAF)],   // 버드나무 잎 (늪의 차분한 회녹색)
+  willowStrand: rgb('#5a6a3c', MAT.LEAF),  // 버드나무 늘어진 가지
+  deadBark: rgb('#6e665a', MAT.BARK),      // 죽은 나무 (바랜 회갈색)
+  deadMoss: rgb('#66724a', MAT.LEAF),      // 죽은 나무에 늘어진 이끼
+  standingStone: rgb('#a8a294', MAT.ROCK), // 초원의 선돌
+};
+
+// 색을 조금씩 다르게 (재질 번호는 그대로)
+function vary(c, amount, rnd) {
+  const k = 1 + (rnd() - 0.5) * amount;
+  return [c[0] * k, c[1] * k, c[2] * k, c[3]];
+}
+
+const NO_UV = [0, 0];
+const NO_OFS = [0, 0, 0];
+
+// 삼각형을 모아 모델을 만드는 도구
+class MeshBuilder {
+  constructor() {
+    this.pos = [];   // 정점 위치
+    this.nrm = [];   // 법선: 면이 향하는 방향 (빛 계산용)
+    this.col = [];   // 색 (r, g, b, 재질)
+    this.wind = [];  // 바람에 흔들리는 정도 (m)
+    this.uv = [];    // 무늬 그림 좌표 (잎 판만 사용)
+    this.ofs = [];   // 카메라 쪽으로 세우는 잎 판의 모서리 (x, y, 크기). 보통 정점은 0
+  }
+
+  vert(p, n, color, wind = 0, uv = NO_UV, ofs = NO_OFS) {
+    this.pos.push(p[0], p[1], p[2]);
+    this.nrm.push(n[0], n[1], n[2]);
+    this.col.push(color[0], color[1], color[2], color[3] || 0);
+    this.wind.push(wind);
+    this.uv.push(uv[0], uv[1]);
+    this.ofs.push(ofs[0], ofs[1], ofs[2]);
+  }
+
+  // 각진 삼각형 (면 하나에 법선 하나). center를 주면 면이 center 바깥쪽을 향하게 맞춤
+  tri(a, b, c, color, center) {
+    let n = V3.normalize(V3.cross(V3.sub(b, a), V3.sub(c, a)));
+    if (center && V3.dot(n, V3.sub(V3.scale(V3.add(V3.add(a, b), c), 1 / 3), center)) < 0) {
+      [b, c] = [c, b];
+      n = V3.scale(n, -1);
+    }
+    this.vert(a, n, color);
+    this.vert(b, n, color);
+    this.vert(c, n, color);
+  }
+
+  // 매끈한 삼각형 (정점마다 법선). colors를 주면 정점마다 색도 따로
+  triN(a, b, c, na, nb, nc, color, center, colors) {
+    let [ca, cb, cc] = colors || [color, color, color];
+    const n = V3.cross(V3.sub(b, a), V3.sub(c, a));
+    if (center && V3.dot(n, V3.sub(V3.scale(V3.add(V3.add(a, b), c), 1 / 3), center)) < 0) {
+      [b, c] = [c, b];
+      [nb, nc] = [nc, nb];
+      [cb, cc] = [cc, cb];
+    }
+    this.vert(a, na, ca);
+    this.vert(b, nb, cb);
+    this.vert(c, nc, cc);
+  }
+
+  // 위를 향하는 각진 삼각형 (먼 산처럼 높이로 만든 면)
+  triUp(a, b, c, color) {
+    let n = V3.normalize(V3.cross(V3.sub(b, a), V3.sub(c, a)));
+    if (n[1] < 0) {
+      [b, c] = [c, b];
+      n = V3.scale(n, -1);
+    }
+    this.vert(a, n, color);
+    this.vert(b, n, color);
+    this.vert(c, n, color);
+  }
+
+  // from번째 정점부터 끝까지 법선을 dir 쪽으로 amount만큼 기울임
+  // (얼굴은 법선을 앞쪽으로 모아 두면 빛이 고르게 들어 애니메이션처럼 깔끔해짐)
+  bendNormals(from, dir, amount) {
+    const d = V3.normalize(dir);
+    for (let i = from * 3; i < this.nrm.length; i += 3) {
+      const n = V3.normalize([
+        Utils.lerp(this.nrm[i], d[0], amount), Utils.lerp(this.nrm[i + 1], d[1], amount), Utils.lerp(this.nrm[i + 2], d[2], amount)]);
+      this.nrm[i] = n[0];
+      this.nrm[i + 1] = n[1];
+      this.nrm[i + 2] = n[2];
+    }
+  }
+
+  // 정점마다 바람 흔들림을 (x, y, z) 위치로 정함
+  setWind(fn) {
+    for (let i = 0; i < this.wind.length; i++) {
+      this.wind[i] = fn(this.pos[i * 3], this.pos[i * 3 + 1], this.pos[i * 3 + 2]);
+    }
+  }
+}
+
+// 정이십면체를 잘게 나눈 공 모양 (detail 0 = 20면, 1 = 80면, 2 = 320면)
+function icoGeometry(detail) {
+  const t = (1 + Math.sqrt(5)) / 2;
+  const verts = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t],
+    [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]].map(V3.normalize);
+  let faces = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6],
+    [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]];
+  for (let d = 0; d < detail; d++) {
+    const cache = {};
+    const mid = (a, b) => {
+      const key = a < b ? a + '_' + b : b + '_' + a;
+      if (cache[key] === undefined) {
+        cache[key] = verts.length;
+        verts.push(V3.normalize(V3.scale(V3.add(verts[a], verts[b]), 0.5)));
+      }
+      return cache[key];
+    };
+    const next = [];
+    for (const [a, b, c] of faces) {
+      const ab = mid(a, b), bc = mid(b, c), ca = mid(c, a);
+      next.push([a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]);
+    }
+    faces = next;
+  }
+  return { verts, faces };
+}
+
+// 기본 도형 (m: 위치·회전·크기 행렬, colorFn: 면마다 색을 돌려주는 함수)
+// opts.smooth: 매끈하게(정점 법선), opts.rnd: 난수, opts.jitter: 울퉁불퉁한 정도
+const Shapes = {
+  // 원기둥(r1 > 0) 또는 원뿔(r1 = 0). 아래 반지름 r0, 위 반지름 r1, 높이 h, 옆면 n개
+  // opts: top(윗면, 기본 true), bottom(아랫면), topColor, bottomColor
+  cylinder(b, m, r0, r1, h, n, colorFn, opts = {}) {
+    const rnd = opts.rnd || Math.random;
+    const jit = opts.jitter || 0;
+    const ring = (r, y) => {
+      const pts = [];
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        const rr = r * (1 + (rnd() - 0.5) * jit);
+        pts.push(M4.transformPoint(m, [Math.cos(a) * rr, y, Math.sin(a) * rr]));
+      }
+      return pts;
+    };
+    const sideN = (a) => V3.normalize(M4.transformDir(m, [Math.cos(a) * h, r0 - r1, Math.sin(a) * h]));
+    const lo = ring(r0, 0);
+    const hi = r1 > 0 ? ring(r1, h) : null;
+    const tip = M4.transformPoint(m, [0, h, 0]);
+    const bottomC = M4.transformPoint(m, [0, 0, 0]);
+    const center = M4.transformPoint(m, [0, h * 0.4, 0]);
+    // opts.gradient = [아래 배율, 위 배율]: 아래쪽과 위쪽 밝기를 다르게 (예: 솔잎 끝은 밝고 안쪽은 어둡게)
+    const [gLo, gHi] = opts.gradient || [1, 1];
+    const tint = (c, k) => [c[0] * k, c[1] * k, c[2] * k, c[3]];
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const c = colorFn();
+      if (opts.smooth) {
+        const na = sideN((i / n) * Math.PI * 2), nb = sideN(((i + 1) / n) * Math.PI * 2);
+        const cl = tint(c, gLo), ch = tint(c, gHi);
+        if (hi) {
+          b.triN(lo[i], lo[j], hi[j], na, nb, nb, c, center, [cl, cl, ch]);
+          b.triN(lo[i], hi[j], hi[i], na, nb, na, c, center, [cl, ch, ch]);
+        } else {
+          b.triN(lo[i], lo[j], tip, na, nb, sideN(((i + 0.5) / n) * Math.PI * 2), c, center, [cl, cl, ch]);
+        }
+      } else if (hi) {
+        b.tri(lo[i], lo[j], hi[j], c, center);
+        b.tri(lo[i], hi[j], hi[i], c, center);
+      } else {
+        b.tri(lo[i], lo[j], tip, c, center);
+      }
+      if (hi && opts.top !== false) b.tri(hi[i], hi[j], tip, opts.topColor ? opts.topColor() : colorFn(), center);
+      if (opts.bottom) b.tri(lo[i], lo[j], bottomC, opts.bottomColor ? opts.bottomColor() : c, center);
+    }
+  },
+
+  // 공. opts.normalCenter를 주면 법선을 그 점에서 바깥으로 → 여러 덩어리가 한 덩어리처럼 부드럽게 보임
+  icosphere(b, m, detail, colorFn, opts = {}) {
+    const rnd = opts.rnd || Math.random;
+    const jit = opts.jitter || 0;
+    const { verts, faces } = icoGeometry(detail);
+    const pts = verts.map((v) => M4.transformPoint(m, V3.scale(v, 1 + (rnd() - 0.5) * jit)));
+    const center = M4.transformPoint(m, [0, 0, 0]);
+    const nc = opts.normalCenter || center;
+    const nrm = pts.map((p) => V3.normalize(V3.sub(p, nc)));
+    for (const [i, j, k] of faces) {
+      if (opts.smooth) b.triN(pts[i], pts[j], pts[k], nrm[i], nrm[j], nrm[k], colorFn(), center);
+      else b.tri(pts[i], pts[j], pts[k], colorFn(), center);
+    }
+  },
+
+  // p0에서 p1까지 잇는 막대 (뼈·활 같은 가는 부분). 굵기 r0 → r1
+  segment(b, p0, p1, r0, r1, n, colorFn, opts = {}) {
+    const d = V3.sub(p1, p0), len = Math.hypot(d[0], d[1], d[2]);
+    const y = V3.scale(d, 1 / len);
+    const x = V3.normalize(V3.cross(Math.abs(y[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0], y));
+    const z = V3.cross(x, y);
+    const m = new Float32Array([x[0], x[1], x[2], 0, y[0] * len, y[1] * len, y[2] * len, 0, z[0], z[1], z[2], 0, p0[0], p0[1], p0[2], 1]);
+    Shapes.cylinder(b, m, r0, r1, 1, n, colorFn, opts);
+  },
+
+  // 상자 (크기 1, 가운데가 원점 → m으로 크기 조절)
+  box(b, m, colorFn) {
+    const p = [[-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5],
+      [-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]].map((v) => M4.transformPoint(m, v));
+    const center = M4.transformPoint(m, [0, 0, 0]);
+    const quads = [[0, 1, 2, 3], [5, 4, 7, 6], [4, 0, 3, 7], [1, 5, 6, 2], [3, 2, 6, 7], [4, 5, 1, 0]];
+    for (const [a, c1, d, e] of quads) {
+      const col = colorFn();
+      b.tri(p[a], p[c1], p[d], col, center);
+      b.tri(p[a], p[d], p[e], col, center);
+    }
+  },
+};
+
+// ---------- 잎 무늬 그림 (텍스처) ----------
+// 512x256: 왼쪽 절반 = 넓은 잎 덩어리, 오른쪽 절반 = 솔잎 덩어리. 흰빛 계열로 그리고 색은 모델에서 입힘
+function drawLeafShape(g, x, y, len, wid, rot) {
+  g.save();
+  g.translate(x, y);
+  g.rotate(rot);
+  g.beginPath();
+  g.moveTo(-len / 2, 0);
+  g.quadraticCurveTo(0, -wid, len / 2, 0);
+  g.quadraticCurveTo(0, wid, -len / 2, 0);
+  g.fill();
+  g.restore();
+}
+
+function buildLeafTexture() {
+  const W = 512, H = 256;
+  const color = Utils.makeCanvas(W, H), mask = Utils.makeCanvas(W, H);
+  const cg = color.getContext('2d'), mg = mask.getContext('2d');
+  cg.fillStyle = '#b4c09e';   // 잎 사이 빈 곳 색 (멀리서 흐려질 때 테두리가 검게 번지지 않게)
+  cg.fillRect(0, 0, W, H);
+  mg.fillStyle = '#000';
+  mg.fillRect(0, 0, W, H);
+  mg.fillStyle = '#fff';
+  const rnd = Utils.rng(31);
+
+  // 넓은 잎: 가운데는 빽빽, 가장자리는 듬성듬성
+  for (let i = 0; i < 150; i++) {
+    const a = rnd() * Math.PI * 2, r = Math.pow(rnd(), 0.65) * 104;
+    const x = 128 + Math.cos(a) * r, y = 128 + Math.sin(a) * r;
+    const len = 22 + rnd() * 16, wid = len * 0.42, rot = a + (rnd() - 0.5) * 1.6;
+    const v = Utils.clamp(160 + rnd() * 95 - r * 0.35, 120, 255);
+    cg.fillStyle = `rgb(${(v * 0.92) | 0},${v | 0},${(v * 0.8) | 0})`;
+    drawLeafShape(cg, x, y, len, wid, rot);
+    drawLeafShape(mg, x, y, len, wid, rot);
+    cg.strokeStyle = 'rgba(40, 60, 20, 0.35)';   // 잎맥
+    cg.lineWidth = 1.2;
+    cg.beginPath();
+    cg.moveTo(x - (Math.cos(rot) * len) / 2.4, y - (Math.sin(rot) * len) / 2.4);
+    cg.lineTo(x + (Math.cos(rot) * len) / 2.4, y + (Math.sin(rot) * len) / 2.4);
+    cg.stroke();
+  }
+
+  // 솔잎: 가지에서 바깥으로 뻗은 가는 잎 다발
+  cg.lineCap = mg.lineCap = 'round';
+  for (let i = 0; i < 55; i++) {
+    const a = rnd() * Math.PI * 2, r = Math.pow(rnd(), 0.7) * 80;
+    const bx = 384 + Math.cos(a) * r, by = 128 + Math.sin(a) * r;
+    const v = Utils.clamp(150 + rnd() * 100 - r * 0.3, 110, 250);
+    for (let k = 0; k < 9; k++) {
+      const d = a + (rnd() - 0.5) * 1.4, len = 14 + rnd() * 16;
+      const ex = bx + Math.cos(d) * len, ey = by + Math.sin(d) * len;
+      cg.strokeStyle = `rgb(${(v * 0.85) | 0},${v | 0},${(v * 0.8) | 0})`;
+      mg.strokeStyle = '#fff';
+      cg.lineWidth = mg.lineWidth = 3;
+      for (const g of [cg, mg]) {
+        g.beginPath();
+        g.moveTo(bx, by);
+        g.lineTo(ex, ey);
+        g.stroke();
+      }
+    }
+  }
+
+  const cd = cg.getImageData(0, 0, W, H).data, md = mg.getImageData(0, 0, W, H).data;
+  const data = new Uint8Array(W * H * 4);
+  for (let i = 0; i < W * H; i++) {
+    data[i * 4] = cd[i * 4];
+    data[i * 4 + 1] = cd[i * 4 + 1];
+    data[i * 4 + 2] = cd[i * 4 + 2];
+    data[i * 4 + 3] = md[i * 4];
+  }
+  return { width: W, height: H, data };
+}
+
+// 잎 판 하나: 위치 p, 크기 size, 법선은 nc(잎 전체의 중심)에서 바깥으로 → 덩어리 전체가 부드럽게 빛을 받음
+function leafCard(b, rnd, p, size, color, nc, needle) {
+  const ax = V3.normalize([rnd() - 0.5, rnd() - 0.5, rnd() - 0.5]);
+  const ay = V3.normalize(V3.cross(ax, V3.normalize([rnd() - 0.5, rnd() - 0.5, rnd() - 0.5])));
+  const k = size * (0.75 + rnd() * 0.5);
+  const corner = (x, y) => V3.add(p, V3.add(V3.scale(ax, x * k), V3.scale(ay, y * k)));
+  const q = [corner(-0.5, -0.5), corner(0.5, -0.5), corner(0.5, 0.5), corner(-0.5, 0.5)];
+  const u0 = needle ? 0.5 : 0;
+  const uv = [[u0, 1], [u0 + 0.5, 1], [u0 + 0.5, 0], [u0, 0]];
+  const n = q.map((pt) => V3.normalize(V3.sub(pt, nc)));
+  const col = [color[0], color[1], color[2], MAT.CARD];
+  for (const [i0, i1, i2] of [[0, 1, 2], [0, 2, 3], [0, 2, 1], [0, 3, 2]]) {   // 앞면 + 뒷면
+    b.vert(q[i0], n[i0], col, 0, uv[i0]);
+    b.vert(q[i1], n[i1], col, 0, uv[i1]);
+    b.vert(q[i2], n[i2], col, 0, uv[i2]);
+  }
+}
+
+// 잎 덩어리(중심 c, 가로 반지름 rx, 세로 반지름 ry) 겉면 근처에 잎 판 count장
+function leafCards(b, rnd, c, rx, ry, count, colors, size, nc, needle) {
+  for (let i = 0; i < count; i++) {
+    const z = rnd() * 2 - 1, th = rnd() * Math.PI * 2, s = Math.sqrt(1 - z * z);
+    const d = 0.75 + rnd() * 0.35;
+    const p = [c[0] + s * Math.cos(th) * rx * d, c[1] + z * ry * d, c[2] + s * Math.sin(th) * rx * d];
+    leafCard(b, rnd, p, size, vary(colors[(rnd() * colors.length) | 0], 0.2, rnd), nc, needle);
+  }
+}
+
+// 카메라 쪽으로 세우는 잎 판: 정점 6개를 모두 가운데 p에 두고 모서리는 셰이더가 화면 방향으로 펼침
+// → 어느 쪽에서 봐도 가는 선이 되지 않고 둥근 잎 뭉치로 보임 (앞면만 있으면 되어 정점도 절반)
+// nrm을 주면 그 법선을 그대로 씀 (판이 붙은 겉면과 똑같이 빛을 받아 겉면에 녹아듦)
+function leafBillboard(b, rnd, p, size, color, nc, needle, nrm) {
+  const k = size * (0.75 + rnd() * 0.5), a = rnd() * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+  const n = nrm || V3.normalize(V3.sub(p, nc));
+  const col = [color[0], color[1], color[2], MAT.CARD];
+  const u0 = needle ? 0.5 : 0;
+  const cs = [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]];
+  const uv = [[u0, 1], [u0 + 0.5, 1], [u0 + 0.5, 0], [u0, 0]];
+  for (const i of [0, 1, 2, 0, 2, 3]) {
+    const x = cs[i][0] * ca - cs[i][1] * sa, y = cs[i][0] * sa + cs[i][1] * ca;   // 판마다 돌려 같은 무늬가 반복돼 보이지 않게
+    b.vert(p, V3.normalize(V3.add(n, [0, y * 0.5, 0])), col, 0, uv[i], [x, y, k]);   // 위쪽 모서리는 하늘빛을 더 받게
+  }
+}
+
+// 둥근 뭉게 잎 덩어리: 큰 타원(중심 C, 반지름 R) 겉에 작은 공 n개를 붙임 (반지름 rMin~rMax)
+//   법선은 큰 타원 쪽으로 모아 한 덩어리처럼 부드럽게 빛을 받고, 공 사이 틈은 정점 색을 어둡게 해 붓으로 찍은 듯한 잎 뭉치가 드러남
+//   다른 공 속에 묻혀 안 보이는 면은 만들지 않음 (삼각형 절약). cards: 공마다 꽂아 볼 잎 판 수
+//   detail: 공을 나누는 정도 (1 = 80면: 가까이서 윤곽이 각져 보임, 2 = 320면: 둥글게)
+function puffCanopy(b, rnd, C, R, n, rMin, rMax, colors, cards, cardSize, detail = 1) {
+  const puffs = [{ c: C, r: Math.min(R[0], R[1], R[2]) * 0.8 }];   // 속을 채우는 공 (거의 다 묻히고 밑면만 남음)
+  for (let i = 0; i < n; i++) {   // 위쪽에 몰리게, 황금각으로 돌려 고르게 퍼뜨림
+    const y = 1 - ((i + 0.5) / n) * 1.6, s = Math.sqrt(1 - y * y), th = i * 2.4 + rnd() * 0.6, d = 0.62 + rnd() * 0.14;
+    puffs.push({ c: [C[0] + Math.cos(th) * s * R[0] * d, C[1] + y * R[1] * d, C[2] + Math.sin(th) * s * R[2] * d], r: rMin + rnd() * (rMax - rMin) });
+  }
+  const rel = (p) => [(p[0] - C[0]) / R[0], (p[1] - C[1]) / R[1], (p[2] - C[2]) / R[2]];   // 큰 타원 기준 위치 (겉면 = 길이 1)
+  const buried = (q, skip) => puffs.some((o, j) => j !== skip && Math.hypot(q[0] - o.c[0], q[1] - o.c[1], q[2] - o.c[2]) < o.r * 0.9);
+  const ico = icoGeometry(detail);
+  puffs.forEach((o, i) => {
+    const green = vary(colors[(rnd() * colors.length) | 0], 0.12, rnd);
+    // 울퉁불퉁함은 방향에 따라 부드럽게 바뀌게 (점마다 따로 흔들면 잘게 나눌수록 쭈글쭈글 깨져 보임)
+    const ph = [rnd() * 6.28, rnd() * 6.28, rnd() * 6.28];
+    const lump = (v) => 1 + 0.075 * (Math.sin(v[0] * 2.6 + ph[0]) + Math.sin(v[1] * 2.6 + ph[1]) + Math.sin(v[2] * 2.6 + ph[2]));
+    const pts = ico.verts.map((v) => V3.add(o.c, V3.scale(v, o.r * lump(v))));
+    const nrm = pts.map((p) => {
+      const e = rel(p);
+      const big = V3.normalize([e[0] / R[0], e[1] / R[1], e[2] / R[2]]);   // 큰 타원의 법선
+      return V3.normalize(V3.add(V3.scale(big, 0.78), V3.scale(V3.normalize(V3.sub(p, o.c)), 0.22)));
+    });
+    const col = pts.map((p) => {
+      const e = rel(p), depth = Math.hypot(e[0], e[1], e[2]);
+      const k = (0.6 + 0.4 * Utils.smooth((depth - 0.55) / 0.45)) * (0.88 + 0.22 * Utils.smooth(e[1] * 0.5 + 0.5));   // 안쪽 틈·아래는 어둡게, 위는 밝게
+      return [green[0] * k, green[1] * k, green[2] * k, green[3]];
+    });
+    for (const [a, bb, c] of ico.faces) {
+      if (buried(V3.scale(V3.add(V3.add(pts[a], pts[bb]), pts[c]), 1 / 3), i)) continue;
+      b.triN(pts[a], pts[bb], pts[c], nrm[a], nrm[bb], nrm[c], green, o.c, [col[a], col[bb], col[c]]);
+    }
+    for (let k = 0; i > 0 && k < cards; k++) {   // 잎 판: 공 겉면 바깥쪽에만 (다른 공 속·덩어리 안쪽은 건너뜀)
+      const z = rnd() * 2 - 1, th = rnd() * Math.PI * 2, s = Math.sqrt(1 - z * z);
+      const p = V3.add(o.c, V3.scale([s * Math.cos(th), z, s * Math.sin(th)], o.r * (0.92 + rnd() * 0.26)));
+      const e = rel(p);
+      if (buried(p, i) || Math.hypot(e[0], e[1], e[2]) < 0.8) continue;
+      leafBillboard(b, rnd, p, cardSize, vary(colors[(rnd() * colors.length) | 0], 0.2, rnd), C, false);
+    }
+  });
+}
+
+// ---------- 나무 ----------
+
+// 소나무 한 층: 위는 볼록하게 부푼 원뿔, 가장자리는 가지 뭉치처럼 부드럽게 물결치며 아래로 축 처진 치마 모양 + 오목한 아랫면
+// (예전에는 14각 원뿔 한 겹이라 큰 삼각형 면과 들쭉날쭉한 가장자리가 유리 조각처럼 깨져 보였음
+//  → 고리를 여러 겹 두어 둥글게 휘고, 가장자리는 부드러운 물결, 법선은 나무 전체 모양을 따라 매끈하게)
+// detail 1은 면만 줄인 가벼운 모양 (멀리 있는 나무·휴대폰). 난수를 쓰는 순서는 같아서 모양은 그대로
+function pineTier(b, rnd, y, r, h, green, detail) {
+  const fine = detail > 1;
+  const n = fine ? 20 : 12, rings = fine ? [0, 0.45, 0.75, 0.92, 1] : [0, 0.6, 1];
+  const lobes = 5 + ((rnd() * 3) | 0), ph1 = rnd() * 6.28, ph2 = rnd() * 6.28;
+  const lobe = (a) => 0.5 + 0.5 * (0.65 * Math.sin(a * lobes + ph1) + 0.35 * Math.sin(a * (lobes + 3) + ph2));   // 0~1 (1 = 가지 뭉치 끝: 더 길고 더 처짐)
+  const shape = (a) => {
+    const L = lobe(a);
+    return { R: r * (0.86 + 0.24 * L), drop: h * (1.08 + 0.2 * L) };
+  };
+  // 겉면: 꼭대기(s = 0)에서 가장자리(s = 1)까지 drop만큼 내려감. f가 볼록해서 위는 둥글게 부풀고 끝은 아래로 처짐
+  const f = (s) => 0.5 * s + 0.5 * s * s;
+  const at = (a, s) => {
+    const { R, drop } = shape(a);
+    return [Math.cos(a) * R * s, y + h - drop * f(s), Math.sin(a) * R * s];
+  };
+  const nrm = (a, s) => {
+    const { R, drop } = shape(a), k = (drop * (0.5 + s)) / R;   // 겉면 기울기
+    const surf = V3.normalize([Math.cos(a) * k, 1, Math.sin(a) * k]);
+    const vol = V3.normalize([Math.cos(a), 0.55, Math.sin(a)]);   // 나무 전체(원뿔)의 법선 → 층과 층이 한 덩어리처럼 매끈하게 빛을 받음
+    return V3.normalize(V3.add(V3.scale(surf, 0.45), V3.scale(vol, 0.55)));
+  };
+  const base = vary(green, 0.08, rnd);
+  const col = (a, s) => {   // 안쪽(위 층에 가려 그늘진 곳)은 어둡고 가지 끝은 밝게
+    const k = (0.58 + 0.6 * s * s) * (0.94 + 0.12 * lobe(a));
+    return [base[0] * k, base[1] * k, base[2] * k, base[3]];
+  };
+  const ang = (i) => (i / n) * Math.PI * 2;
+  const top = [0, y + h * 0.35, 0];
+  for (let j = 0; j < rings.length - 1; j++) {
+    const s0 = rings[j], s1 = rings[j + 1];
+    for (let i = 0; i < n; i++) {
+      const a0 = ang(i), a1 = ang(i + 1);
+      const p01 = at(a0, s1), p11 = at(a1, s1), n01 = nrm(a0, s1), n11 = nrm(a1, s1);
+      if (j === 0) {   // 꼭대기는 한 점
+        b.triN(at(0, 0), p01, p11, [0, 1, 0], n01, n11, base, top, [col(a0, 0), col(a0, s1), col(a1, s1)]);
+        continue;
+      }
+      const p00 = at(a0, s0), p10 = at(a1, s0), n00 = nrm(a0, s0), n10 = nrm(a1, s0);
+      b.triN(p00, p01, p11, n00, n01, n11, base, top, [col(a0, s0), col(a0, s1), col(a1, s1)]);
+      b.triN(p00, p11, p10, n00, n11, n10, base, top, [col(a0, s0), col(a1, s1), col(a1, s0)]);
+    }
+  }
+  // 아랫면: 가장자리에서 줄기 쪽으로 올라가는 오목한 면. 가장자리는 윗면 색에 가깝게 이어 붙여 검은 테두리가 생기지 않게
+  const under = vary(COLORS.pineUnder, 0.15, rnd), hub = [0, y + h * 0.15, 0], below = [0, y + h * 0.6, 0];
+  const uIn = (a) => {
+    const { R } = shape(a);
+    return [Math.cos(a) * R * 0.5, y + h * 0.05, Math.sin(a) * R * 0.5];
+  };
+  const uN = (a, s) => V3.normalize([Math.cos(a) * 0.6 * s, -1, Math.sin(a) * 0.6 * s]);
+  const uRim = (a) => col(a, 1).map((v, i) => (i < 3 ? v * 0.6 : v));
+  for (let i = 0; i < n; i++) {
+    const a0 = ang(i), a1 = ang(i + 1);
+    b.triN(at(a0, 1), uIn(a0), uIn(a1), uN(a0, 1), uN(a0, 0.5), uN(a1, 0.5), under, below, [uRim(a0), under, under]);
+    b.triN(at(a0, 1), uIn(a1), at(a1, 1), uN(a0, 1), uN(a1, 0.5), uN(a1, 1), under, below, [uRim(a0), under, uRim(a1)]);
+    b.triN(uIn(a0), hub, uIn(a1), uN(a0, 0.5), [0, -1, 0], uN(a1, 0.5), under, below);
+  }
+  // 솔잎 판: 가지 뭉치 끝을 따라 촘촘히 + 겉면 군데군데. 법선·색을 붙은 겉면과 같게 해서 판이 따로 떠 보이지 않고 보송보송한 결만 더함
+  const rimCards = Math.round(6 + 10 * (r / 2.1)), faceCards = 10;
+  for (let k = 0; k < rimCards + faceCards; k++) {
+    const onRim = k < rimCards;
+    const a = onRim ? ((k + rnd() * 0.8) / rimCards) * Math.PI * 2 : rnd() * Math.PI * 2;
+    const s = onRim ? 0.95 + rnd() * 0.07 : 0.5 + rnd() * 0.4;
+    const p = at(a, s);
+    p[1] += onRim ? -h * 0.03 : 0.06;
+    leafBillboard(b, rnd, p, onRim ? 0.95 : 0.75, vary(col(a, s), 0.14, rnd), null, true, nrm(a, s));
+  }
+}
+
+// 소나무: 늘어진 가지 층 4단 + 솔잎 판 (높이 약 7m, tall이면 더 큼). detail: 2 매끈하게, 1 가볍게
+function buildPine(rnd, tall, detail = 2) {
+  const b = new MeshBuilder();
+  const H = tall ? 1.3 : 1;
+  Shapes.cylinder(b, M4.scaling(1, H, 1), 0.24, 0.1, 3.2, 7, () => vary(COLORS.bark, 0.2, rnd), { rnd, top: false, smooth: true });
+  let y = 1.2 * H, r = 2.1, h = 2.8 * H;
+  for (let i = 0; i < 4; i++) {
+    pineTier(b, rnd, y, r, h, COLORS.pine[i], detail);
+    y += h * 0.5;
+    r *= 0.74;
+    h *= 0.86;
+  }
+  b.setWind((x, yy) => Math.max(0, yy - 2) * 0.012);
+  return b;
+}
+
+// 활엽수: 굵은 줄기 + 가지 + 둥근 잎 덩어리 + 잎 판 (detail: 잎 덩어리를 나누는 정도)
+function buildOak(rnd, detail = 2) {
+  const b = new MeshBuilder();
+  const bark = () => vary(COLORS.bark, 0.2, rnd);
+  Shapes.cylinder(b, M4.identity(), 0.34, 0.2, 3.4, 9, bark, { rnd, jitter: 0.12, top: false, smooth: true });
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * 6.28 + rnd();
+    Shapes.cylinder(b, M4.chain(M4.translation(0, 2.3 + rnd() * 0.6, 0), M4.rotationY(a), M4.rotationZ(-0.85)),
+      0.13, 0.05, 1.6, 6, bark, { rnd, top: false, smooth: true });
+  }
+  puffCanopy(b, rnd, [0, 4.6, 0], [2.35, 1.6, 2.35], 13, 0.85, 1.2, COLORS.leaf, 12, 1.35, detail);   // 뭉게뭉게 둥근 잎 덩어리 (공 13개)
+  b.setWind((x, y) => Math.max(0, y - 2.5) * 0.018);
+  return b;
+}
+
+// 자작나무: 흰 줄기에 검은 무늬, 연둣빛 잎 (detail: 잎 덩어리를 나누는 정도)
+function buildBirch(rnd, detail = 2) {
+  const b = new MeshBuilder();
+  const segs = 6, H = 4.4;
+  for (let i = 0; i < segs; i++) {
+    const r0 = 0.16 - i * 0.014, r1 = 0.16 - (i + 1) * 0.014;
+    Shapes.cylinder(b, M4.translation((rnd() - 0.5) * 0.04, (i / segs) * H, 0), r0, r1, H / segs, 7,
+      () => (rnd() < 0.22 ? vary(COLORS.birchDark, 0.3, rnd) : vary(COLORS.birch, 0.1, rnd)), { rnd, top: false, smooth: true });
+  }
+  puffCanopy(b, rnd, [0, 4.7, 0], [1.5, 1.35, 1.5], 9, 0.55, 0.8, COLORS.birchLeaf, 10, 1.0, detail);   // 가볍고 작은 잎 덩어리
+  b.setWind((x, y) => Math.max(0, y - 2.5) * 0.022);
+  return b;
+}
+
+// 덤불: 잎 덩어리 + 잎 판 + 빨간 열매
+function buildBush(rnd) {
+  const b = new MeshBuilder();
+  puffCanopy(b, rnd, [0, 0.42, 0], [0.78, 0.48, 0.78], 7, 0.32, 0.46, COLORS.bushLeaf, 6, 0.6);   // 낮고 둥근 잎 뭉치
+  for (let i = 0; i < 7; i++) {
+    const a = rnd() * 6.28, h = 0.3 + rnd() * 0.35;
+    Shapes.icosphere(b, M4.chain(M4.translation(Math.cos(a) * 0.82, h, Math.sin(a) * 0.82), M4.scaling(0.06, 0.06, 0.06)),
+      0, () => COLORS.berry, { smooth: true });
+  }
+  b.setWind((x, y) => y * 0.03);
+  return b;
+}
+
+// 바위 (질감과 이끼는 셰이더가 그림)
+function buildRock(rnd) {
+  const b = new MeshBuilder();
+  Shapes.icosphere(b, M4.chain(M4.translation(0, 0.3, 0), M4.scaling(1.1, 0.72, 0.95)), 1,
+    () => vary(COLORS.rock, 0.12, rnd), { rnd, jitter: 0.5 });
+  return b;
+}
+
+// ---------- 풀·꽃·물가 식물 ----------
+
+// 풀잎 하나 (뿌리는 어둡고 끝은 밝게, 끝으로 갈수록 바람에 흔들림)
+// lean: 기우는 방향, bend: 끝이 휘어 나가는 거리(m), rank: 1이면 먼 곳에서 생략되는 작은 잎 (무늬 좌표 x에 담아 셰이더가 읽음)
+function grassBlade(b, rnd, bx, bz, h, w, baseC, tipC, windScale, lean = rnd() * Math.PI * 2, bend = 0.06 + rnd() * 0.16, rank = 0) {
+  const up = [0, 1, 0];   // 풀은 모두 위를 향한 것처럼 빛을 받게 (부드러워 보임)
+  const lx = Math.cos(lean), lz = Math.sin(lean);
+  const sx = -lz * w, sz = lx * w;
+  const midC = Utils.mixColor(baseC, tipC, 0.5);
+  const mh = h * 0.55, mb = bend * 0.35;
+  const p0 = [bx - sx, 0, bz - sz], p1 = [bx + sx, 0, bz + sz];
+  const m0 = [bx - sx * 0.7 + lx * mb, mh, bz - sz * 0.7 + lz * mb];
+  const m1 = [bx + sx * 0.7 + lx * mb, mh, bz + sz * 0.7 + lz * mb];
+  const tip = [bx + lx * bend, h - bend * bend * 0.5, bz + lz * bend];   // 많이 휜 잎은 끝이 살짝 처짐
+  const wm = mh * 0.12 * windScale, wt = h * 0.22 * windScale;
+  const u0 = [rank, 0], um = [rank, 0.55], ut = [rank, 1];   // 무늬 좌표 = (생략 순서, 높이 비율)
+  b.vert(p0, up, baseC, 0, u0); b.vert(p1, up, baseC, 0, u0); b.vert(m1, up, midC, wm, um);
+  b.vert(p0, up, baseC, 0, u0); b.vert(m1, up, midC, wm, um); b.vert(m0, up, midC, wm, um);
+  b.vert(m0, up, midC, wm, um); b.vert(m1, up, midC, wm, um); b.vert(tip, up, tipC, wt, ut);
+}
+
+// 풀 한 포기: 가운데서 바깥으로 분수처럼 퍼지는 풀잎 14장 (무릎 높이). baseC·tipC: 뿌리·끝 색, tall: 키 배율 (마른 금빛 풀은 더 길고 가늘게)
+// 앞 7장은 키 크고 넓은 잎 → 먼 구역은 정점 앞 절반만 그려도 풀밭이 비어 보이지 않음 (render.js)
+const GRASS_BLADES = 14;
+function buildGrassTuft(rnd, baseC = COLORS.grassBase, tipC = COLORS.grassTip, tall = 1) {
+  const b = new MeshBuilder();
+  for (let i = 0; i < GRASS_BLADES; i++) {
+    const keep = i < GRASS_BLADES / 2;
+    const a = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * 0.2;
+    const h = (keep ? 0.42 + rnd() * 0.28 : 0.24 + rnd() * 0.24) * tall;
+    const w = (keep ? 0.032 + rnd() * 0.014 : 0.022 + rnd() * 0.01) / Math.sqrt(tall);
+    const lean = a + (rnd() - 0.5) * 1.3;                                  // 바깥쪽으로 기움
+    const bend = (0.08 + rnd() * 0.16) * (0.7 + r * 2.5) * (h / 0.5);      // 바깥 잎·키 큰 잎일수록 더 휨
+    const sun = rnd() < 0.3 ? 0.35 + rnd() * 0.45 : 0;                     // 몇 장은 잎끝이 볕에 바래 더 밝고 노르스름하게
+    const t0 = vary(tipC, 0.2, rnd);
+    const tip = [t0[0] * (1 + 0.4 * sun), t0[1] * (1 + 0.22 * sun), t0[2] * (1 - 0.15 * sun), t0[3]];
+    grassBlade(b, rnd, Math.cos(a) * r, Math.sin(a) * r, h, w, vary(baseC, 0.15, rnd), tip, 1, lean, bend, keep ? 0 : 1);
+  }
+  return b;
+}
+
+// 들꽃: 줄기 + 꽃잎 5장 (꽃 색은 배치할 때 정함)
+function buildFlower() {
+  const b = new MeshBuilder();
+  const up = [0, 1, 0], h = 0.3, stem = COLORS.grassBase;
+  b.vert([-0.012, 0, 0], up, stem); b.vert([0.012, 0, 0], up, stem); b.vert([0, h, 0], up, stem, 0.05);
+  b.vert([0, 0, -0.012], up, stem); b.vert([0, 0, 0.012], up, stem); b.vert([0, h, 0], up, stem, 0.05);
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    const p1 = [Math.cos(a - 0.4) * 0.075, h + 0.025, Math.sin(a - 0.4) * 0.075];
+    const p2 = [Math.cos(a + 0.4) * 0.075, h + 0.025, Math.sin(a + 0.4) * 0.075];
+    b.vert([0, h, 0], up, COLORS.petal, 0.05); b.vert(p1, up, COLORS.petal, 0.05); b.vert(p2, up, COLORS.petal, 0.05);
+  }
+  const cc = COLORS.flowerCenter;
+  b.vert([-0.02, h + 0.03, -0.015], up, cc, 0.05); b.vert([0.02, h + 0.03, -0.015], up, cc, 0.05); b.vert([0, h + 0.03, 0.022], up, cc, 0.05);
+  return b;
+}
+
+// 고사리: 바깥으로 휘어 늘어지는 잎 7장
+function buildFern(rnd) {
+  const b = new MeshBuilder();
+  const up = [0, 1, 0];
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2 + rnd() * 0.4;
+    const len = 0.55 + rnd() * 0.25, rise = 0.35 + rnd() * 0.15;
+    const dx = Math.cos(a), dz = Math.sin(a), sx = -dz, sz = dx;
+    const green = vary(COLORS.fern, 0.25, rnd);
+    const light = Utils.mixColor(green, COLORS.grassTip, 0.45);
+    let pl = [0, 0.02, 0], pr = [0, 0.02, 0];
+    for (let k = 1; k <= 4; k++) {
+      const t = k / 4;
+      const d = len * t, h = rise * Math.sin(t * Math.PI * 0.8);
+      const w = 0.09 * Math.sin(t * Math.PI) + 0.01;
+      const L = [dx * d + sx * w, h, dz * d + sz * w], R = [dx * d - sx * w, h, dz * d - sz * w];
+      const col = Utils.mixColor(green, light, t), w0 = (t - 0.25) * 0.06, w1 = t * 0.06;
+      b.vert(pl, up, col, w0); b.vert(pr, up, col, w0); b.vert(R, up, col, w1);
+      b.vert(pl, up, col, w0); b.vert(R, up, col, w1); b.vert(L, up, col, w1);
+      pl = L;
+      pr = R;
+    }
+  }
+  return b;
+}
+
+// 갈대·부들: 키 큰 잎 + 갈색 이삭
+function buildReeds(rnd) {
+  const b = new MeshBuilder();
+  for (let i = 0; i < 10; i++) {
+    const a = rnd() * Math.PI * 2, r = rnd() * 0.2;
+    grassBlade(b, rnd, Math.cos(a) * r, Math.sin(a) * r, 0.8 + rnd() * 0.6, 0.025 + rnd() * 0.015,
+      vary(COLORS.grassBase, 0.2, rnd), vary(COLORS.reed, 0.2, rnd), 0.6);
+  }
+  for (let i = 0; i < 3; i++) {
+    const x = (rnd() - 0.5) * 0.25, z = (rnd() - 0.5) * 0.25, h = 1.0 + rnd() * 0.35;
+    Shapes.cylinder(b, M4.translation(x, 0, z), 0.008, 0.006, h, 4, () => COLORS.reed);
+    Shapes.cylinder(b, M4.translation(x, h, z), 0.024, 0.02, 0.14, 7, () => vary(COLORS.cattail, 0.15, rnd), { smooth: true });
+  }
+  return b;
+}
+
+// 연잎: 한쪽이 갈라진 둥근 잎
+function buildLily(rnd) {
+  const b = new MeshBuilder();
+  const up = [0, 1, 0], n = 14, r = 0.32;
+  for (let i = 1; i < n; i++) {
+    const a0 = (i / n) * Math.PI * 2, a1 = ((i + 1) / n) * Math.PI * 2;
+    const c = vary(COLORS.lily, 0.12, rnd);
+    b.vert([0, 0.01, 0], up, c);
+    b.vert([Math.cos(a1) * r, 0, Math.sin(a1) * r], up, c);
+    b.vert([Math.cos(a0) * r, 0, Math.sin(a0) * r], up, c);
+  }
+  return b;
+}
+
+// 빨간 독버섯 무리
+function buildMushrooms(rnd) {
+  const b = new MeshBuilder();
+  for (const [x, z, s] of [[0, 0, 1], [0.13, 0.06, 0.7], [-0.09, 0.11, 0.55]]) {
+    const at = (px, py, pz) => M4.chain(M4.translation(x + px * s, py * s, z + pz * s), M4.scaling(s, s, s));
+    Shapes.cylinder(b, at(0, 0, 0), 0.025, 0.02, 0.12, 7, () => COLORS.mushroomStem, { smooth: true });
+    Shapes.cylinder(b, at(0, 0.11, 0), 0.085, 0, 0.065, 10, () => vary(COLORS.mushroomCap, 0.1, rnd),
+      { bottom: true, smooth: true, bottomColor: () => COLORS.mushroomStem });
+    for (let i = 0; i < 3; i++) {
+      const a = rnd() * 6.28;
+      Shapes.box(b, M4.chain(at(Math.cos(a) * 0.045, 0.145, Math.sin(a) * 0.045), M4.scaling(0.018, 0.012, 0.018)), () => COLORS.mushroomStem);
+    }
+  }
+  return b;
+}
+
+// 쓰러진 통나무
+function buildLog(rnd) {
+  const b = new MeshBuilder();
+  Shapes.cylinder(b, M4.chain(M4.translation(-1.4, 0.25, 0), M4.rotationZ(-Math.PI / 2)), 0.27, 0.24, 2.8, 10,
+    () => vary(COLORS.bark, 0.2, rnd),
+    { rnd, jitter: 0.08, smooth: true, bottom: true, bottomColor: () => COLORS.woodCut, topColor: () => COLORS.woodCut });
+  return b;
+}
+
+// 흙길 자갈: 작은 납작한 돌 몇 개
+function buildPebbles(rnd) {
+  const b = new MeshBuilder();
+  for (let i = 0; i < 6; i++) {
+    const a = rnd() * 6.28, d = rnd() * 0.35, s = 0.04 + rnd() * 0.06;
+    Shapes.icosphere(b, M4.chain(M4.translation(Math.cos(a) * d, s * 0.25, Math.sin(a) * d), M4.scaling(s * 1.3, s * 0.6, s)), 0,
+      () => vary(COLORS.rock, 0.3, rnd), { rnd, jitter: 0.3 });
+  }
+  return b;
+}
+
+// 바닥에 떨어진 잎: 잎 무늬 판을 땅에 눕혀 놓음 (갈색·노란빛)
+function buildLitter(rnd) {
+  const b = new MeshBuilder();
+  const up = [0, 1, 0];
+  const tones = [rgb('#8a6a2a'), rgb('#a8862e'), rgb('#6f5a2a'), rgb('#7d8a32')];
+  for (let i = 0; i < 4; i++) {
+    const a = rnd() * 6.28, d = rnd() * 0.3, k = 0.35 + rnd() * 0.2, r = rnd() * 6.28;
+    const cx = Math.cos(a) * d, cz = Math.sin(a) * d, y = 0.012 + i * 0.004;
+    const corner = (x, z) => [cx + (Math.cos(r) * x - Math.sin(r) * z) * k, y, cz + (Math.sin(r) * x + Math.cos(r) * z) * k];
+    const q = [corner(-0.5, -0.5), corner(0.5, -0.5), corner(0.5, 0.5), corner(-0.5, 0.5)];
+    const uv = [[0, 1], [0.5, 1], [0.5, 0], [0, 0]];
+    const c = vary(tones[(rnd() * 4) | 0], 0.2, rnd);
+    c[3] = MAT.CARD;
+    for (const idx of [0, 1, 2, 0, 2, 3]) b.vert(q[idx], up, c, 0, uv[idx]);
+  }
+  return b;
+}
+
+// 무너진 돌기둥: 비뚤게 쌓인 돌덩이 + 옆에 굴러떨어진 돌 (이끼는 셰이더가 그림)
+function buildRuin(rnd) {
+  const b = new MeshBuilder();
+  const stone = () => vary(COLORS.rock, 0.12, rnd);
+  let y = 0;
+  for (let i = 0; i < 4; i++) {
+    const h = 0.55 + rnd() * 0.2, w = 0.75 - i * 0.05;
+    Shapes.box(b, M4.chain(M4.translation((rnd() - 0.5) * 0.08, y + h / 2, (rnd() - 0.5) * 0.08), M4.rotationY((rnd() - 0.5) * 0.3),
+      M4.rotationZ((rnd() - 0.5) * 0.06), M4.scaling(w, h, w)), stone);
+    y += h;
+  }
+  Shapes.box(b, M4.chain(M4.translation(0.85, 0.22, 0.3), M4.rotationY(0.6), M4.rotationZ(0.25), M4.scaling(0.6, 0.45, 0.55)), stone);
+  Shapes.box(b, M4.chain(M4.translation(-0.6, 0.12, -0.55), M4.rotationY(-0.4), M4.scaling(0.4, 0.25, 0.35)), stone);
+  return b;
+}
+
+// ---------- 구역별 풍경 (오픈월드 바람골 들판) ----------
+// 바위 언덕: 층진 바위 더미·바람에 휜 소나무 / 늪지: 버드나무·이끼 늘어진 죽은 나무 / 초원: 꽃 무더기·선돌 고리
+
+// 띠 하나를 앞뒤 양면으로 (늘어진 가지·이끼 가닥). pts: [{ p: 가운데 점, col, wind }], side: 띠의 가로 방향, w0·w1: 위·끝 너비
+function hangingStrip(b, pts, side, w0, w1, nrm) {
+  const edge = (pt, t) => {
+    const half = Utils.lerp(w0, w1, t);
+    return [V3.add(pt.p, V3.scale(side, -half)), V3.add(pt.p, V3.scale(side, half))];
+  };
+  for (let i = 1; i < pts.length; i++) {
+    const A = pts[i - 1], B = pts[i];
+    const [a0, a1] = edge(A, (i - 1) / (pts.length - 1)), [b0, b1] = edge(B, i / (pts.length - 1));
+    const quad = [[a0, A], [a1, A], [b1, B], [a0, A], [b1, B], [b0, B]];
+    for (const [p, src] of quad) b.vert(p, nrm, src.col, src.wind);   // 앞면
+    for (const k of [0, 2, 1, 3, 5, 4]) b.vert(quad[k][0], nrm, quad[k][1].col, quad[k][1].wind);   // 뒷면 (같은 법선: 안쪽에서 봐도 밝게)
+  }
+}
+
+// 각진 바위 덩어리 하나: 울퉁불퉁한 공(면 80개)을 늘리고 돌린 뒤, cut보다 높은 부분은 눌러 평평한 윗면을 만듦
+// (평평한 윗면엔 셰이더가 이끼를 얹고, 각진 옆면엔 지층 무늬를 그림)
+function rockMass(b, rnd, c, scale, rot, cut, stone, jit = 0.3) {
+  const { verts, faces } = icoGeometry(1);
+  const cs = Math.cos(rot), sn = Math.sin(rot);
+  const pts = verts.map((v) => {
+    const k = 1 + (rnd() - 0.5) * jit, x = v[0] * scale[0] * k, z = v[2] * scale[2] * k;
+    let y = c[1] + v[1] * scale[1] * k;
+    if (y > cut) y = cut + (y - cut) * 0.12;   // 윗면을 거의 평평하게 (살짝 둥긂)
+    return [c[0] + cs * x + sn * z, y, c[2] - sn * x + cs * z];
+  });
+  for (const [i, j, k] of faces) b.tri(pts[i], pts[j], pts[k], stone(), c);
+}
+
+// 층진 바위 더미 (바위 언덕의 벽·바위): 윗면이 평평한 각진 바위 덩어리 셋을 계단처럼 겹쳐 놓음 (높이 약 3m, 단마다 이끼 낀 턱)
+// 아랫부분은 땅속 깊이 묻혀 있어 비탈에 놓여도 뜨지 않음. wide: 낮고 넓은 모양 (같은 모양이 줄지어 보이지 않게 두 가지를 섞어 씀)
+// 맨 윗단 가운데 자리를 b.top에 적어 둠 (그 위에 소나무를 심을 때)
+function buildCrag(rnd, wide = false) {
+  const b = new MeshBuilder();
+  const stone = () => vary(COLORS.crag, 0.1, rnd);
+  const turn = rnd() * 6.28;   // 덩어리들이 거의 같은 쪽으로 길쭉해서 한 덩어리 바위 층처럼 보임
+  const parts = wide
+    ? [[0, 0.5, 0, 1.9, 1.5, 1.45, 1.55], [-0.55, 1.2, 0.3, 1.15, 1.0, 0.9, 2.25], [0.9, 0.2, -0.5, 0.9, 0.8, 0.8, 0.85]]
+    : [[0, 0.9, 0, 1.45, 2.1, 1.2, 2.45], [0.75, 0.3, 0.45, 1.15, 1.2, 0.95, 1.35], [-0.2, 2.35, -0.15, 0.85, 0.75, 0.7, 3.05]];
+  for (const [x, y, z, sx, sy, sz, cut] of parts) {
+    const j = 0.9 + rnd() * 0.2;
+    rockMass(b, rnd, [x, y, z], [sx * j, sy, sz * j], turn + (rnd() - 0.5) * 0.8, cut + (rnd() - 0.5) * 0.15, stone);
+  }
+  const t = parts[wide ? 1 : 2];
+  b.top = [t[0], t[6] - 0.05, t[2]];
+  for (let i = 0; i < 2; i++) {   // 발치에 굴러떨어진 돌
+    const a = rnd() * 6.28, d = 1.5 + rnd() * 0.3, s = 0.3 + rnd() * 0.22;
+    Shapes.icosphere(b, M4.chain(M4.translation(Math.cos(a) * d, s * 0.3, Math.sin(a) * d), M4.scaling(s * 1.3, s * 0.75, s)), 0, stone, { rnd, jitter: 0.4 });
+  }
+  return b;
+}
+
+// 바람에 휜 소나무 (언덕 바위 위): 보통 소나무를 위로 갈수록 +x 쪽으로 휘게 하고 가지 층을 옆으로 납작하게, 키는 조금 낮게
+// (배치할 때 모두 같은 쪽을 보게 돌려 놓으면 늘 부는 바람에 한쪽으로 쏠린 언덕 소나무가 됨)
+function buildWindPine(rnd, detail = 2) {
+  const b = buildPine(rnd, false, detail);
+  for (let i = 0; i < b.pos.length; i += 3) {
+    const y = b.pos[i + 1], k = Math.max(y - 1.0, 0);
+    b.pos[i] += k * 0.13 + k * k * 0.022;
+    if (y > 1.3) b.pos[i + 2] *= 0.8;
+    b.pos[i + 1] = y * 0.88;
+  }
+  return b;
+}
+
+// 버드나무 (늪지): 조금 기운 굵은 줄기 + 납작하게 퍼진 잎 덩어리 + 가장자리에서 땅 쪽으로 늘어진 가는 잎 가지 30가닥
+// 늘어진 가지는 끝으로 갈수록 바람에 크게 흔들림 (detail: 잎 덩어리를 나누는 정도, 멀리 있을 땐 1)
+function buildWillow(rnd, detail = 2) {
+  const b = new MeshBuilder();
+  const bark = () => vary(COLORS.bark, 0.2, rnd);
+  Shapes.cylinder(b, M4.rotationZ(-0.07), 0.38, 0.22, 3.1, 9, bark, { rnd, jitter: 0.14, top: false, smooth: true });
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * 6.28 + rnd();
+    Shapes.cylinder(b, M4.chain(M4.translation(0.15, 2.3 + rnd() * 0.4, 0), M4.rotationY(a), M4.rotationZ(-0.75)),
+      0.14, 0.06, 1.8, 6, bark, { rnd, top: false, smooth: true });
+  }
+  const C = [0.2, 3.95, 0];
+  puffCanopy(b, rnd, C, [2.2, 0.9, 2.2], 10, 0.72, 1.0, COLORS.willowLeaf, 8, 1.1, detail);   // 납작한 잎 덩어리 (늘어진 가지가 주인공)
+  b.setWind((x, y) => Math.max(0, y - 2.5) * 0.018);
+  const N = 52;
+  for (let k = 0; k < N; k++) {   // 바깥 가닥일수록 낮은 데서 시작해 길게 늘어져 우산처럼 드리운 모양이 됨
+    const a = ((k + rnd() * 0.8) / N) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+    const r0 = 1.35 + rnd() * 1.05, y0 = 3.5 - rnd() * 0.3 - (r0 - 1.35) * 0.6, len = 1.8 + rnd() * 1.1;
+    const c0 = vary(COLORS.willowStrand, 0.2, rnd), segs = 5, pts = [], nrm = V3.normalize([ca, 0.45, sa]);
+    const at = (t) => {
+      const out = 0.22 * Math.sin(t * 2.0);
+      return [C[0] + ca * (r0 + out), y0 - len * t, C[2] + sa * (r0 + out)];
+    };
+    const tone = (t) => 0.6 + 0.45 * t;   // 잎 덩어리 밑 그늘진 위쪽은 어둡고, 볕 받는 끝은 밝게
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs, k2 = tone(t), p = at(t);
+      p[0] += (rnd() - 0.5) * 0.05;
+      pts.push({ p, col: [c0[0] * k2, c0[1] * k2, c0[2] * k2, c0[3]], wind: 0.03 + 0.15 * t });
+    }
+    hangingStrip(b, pts, [-sa, 0, ca], 0.05, 0.018, nrm);   // 가는 가지 (가까이서도 막대처럼 보이지 않게)
+    for (const t of [0.2 + rnd() * 0.1, 0.47 + rnd() * 0.1, 0.75 + rnd() * 0.15]) {   // 가닥을 따라 잎 뭉치 셋 (잎이 조롱조롱 달린 늘어진 가지로 보이게)
+      const from = b.wind.length, k2 = tone(t);
+      leafBillboard(b, rnd, at(t), 0.42, [c0[0] * k2, c0[1] * k2, c0[2] * k2], null, false, nrm);
+      for (let v = from; v < b.wind.length; v++) b.wind[v] = 0.03 + 0.15 * t;
+    }
+  }
+  return b;
+}
+
+// 죽은 나무 (늪지): 이리저리 꺾인 앙상한 줄기 + 가지 넷 + 가지에 늘어진 이끼 가닥 여섯
+function buildDeadTree(rnd) {
+  const b = new MeshBuilder();
+  const bark = () => vary(COLORS.deadBark, 0.16, rnd);
+  let p = [0, -0.2, 0], dir = [0, 1, 0], r = 0.28;
+  const trunk = [p];
+  for (let i = 0; i < 4; i++) {   // 줄기: 네 마디가 조금씩 꺾여 올라감 (굵기 0.28 → 0.07m)
+    dir = V3.normalize([dir[0] * 0.6 + (rnd() - 0.5) * 0.55, 1, dir[2] * 0.6 + (rnd() - 0.5) * 0.55]);
+    const q = V3.add(p, V3.scale(dir, 1.0 + rnd() * 0.3)), r1 = r * 0.7;
+    Shapes.segment(b, V3.add(p, V3.scale(dir, -0.08)), q, r, r1, 7, bark, { rnd, smooth: true, top: i === 3 });
+    p = q;
+    r = r1;
+    trunk.push(q);
+  }
+  const hangs = [];   // 이끼가 늘어질 자리
+  for (let i = 0; i < 4; i++) {   // 가지: 줄기 마디에서 비스듬히 뻗었다가 한 번 꺾여 위로
+    const s = trunk[1 + (i % 3)], a = i * 1.7 + rnd() * 0.9;
+    const d1 = V3.normalize([Math.cos(a), 0.55 + rnd() * 0.4, Math.sin(a)]);
+    const m = V3.add(s, V3.scale(d1, 0.8 + rnd() * 0.6));
+    const d2 = V3.normalize([d1[0] + (rnd() - 0.5) * 0.6, d1[1] + 0.5, d1[2] + (rnd() - 0.5) * 0.6]);
+    const t = V3.add(m, V3.scale(d2, 0.5 + rnd() * 0.4));
+    Shapes.segment(b, s, m, 0.1, 0.045, 6, bark, { rnd, smooth: true, top: false });
+    Shapes.segment(b, m, t, 0.045, 0.012, 5, bark, { rnd, smooth: true });
+    hangs.push(m, V3.add(s, V3.scale(d1, 0.4)));
+  }
+  b.setWind((x, y) => Math.max(0, y - 1.5) * 0.008);
+  for (let i = 0; i < 6; i++) {   // 늘어진 이끼 가닥
+    const h = hangs[(i * 3 + 1) % hangs.length], len = 0.5 + rnd() * 0.6, pts = [];
+    const c0 = vary(COLORS.deadMoss, 0.2, rnd), a = rnd() * 6.28;
+    for (let k = 0; k <= 3; k++) {
+      const t = k / 3;
+      pts.push({ p: [h[0] + Math.sin(t * 3 + i) * 0.03, h[1] - 0.04 - len * t, h[2]], col: c0, wind: 0.02 + 0.1 * t });
+    }
+    hangingStrip(b, pts, [Math.cos(a), 0, Math.sin(a)], 0.07, 0.02, V3.normalize([h[0], 0.6, h[2]]));
+  }
+  return b;
+}
+
+// 들꽃 한 송이 (꽃 무더기용): 줄기 + 꽃잎 5장 + 노란 가운데. (x, z) 자리에 키 h, 꽃 크기 k, 방향 rot
+function flowerHead(b, x, z, h, k, rot) {
+  const up = [0, 1, 0], stem = Utils.mixColor(COLORS.grassBase, COLORS.grassTip, 0.45), w = 0.008;
+  b.vert([x - w, 0, z], up, stem); b.vert([x + w, 0, z], up, stem); b.vert([x, h, z], up, stem, 0.05);
+  // 꽃송이는 옆으로 고개를 살짝 숙이고(기울기 0.75) 꽃잎은 컵처럼 위로 오므려서, 낮은 눈높이에서 비스듬히 봐도 꽃잎 면이 보임
+  const tx = Math.cos(rot + 1.3), tz = Math.sin(rot + 1.3), r = 0.075 * k;
+  const pt = (dx, dz, lift) => [x + dx, h + lift + (dx * tx + dz * tz) * 0.75, z + dz];
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2 + rot;
+    const p1 = pt(Math.cos(a - 0.4) * r, Math.sin(a - 0.4) * r, r * 0.35), p2 = pt(Math.cos(a + 0.4) * r, Math.sin(a + 0.4) * r, r * 0.35);
+    b.vert([x, h, z], up, COLORS.petal, 0.05); b.vert(p1, up, COLORS.petal, 0.05); b.vert(p2, up, COLORS.petal, 0.05);
+  }
+  const cc = COLORS.flowerCenter, c = 0.02 * k;
+  b.vert(pt(-c, -c * 0.75, 0.03), up, cc, 0.05); b.vert(pt(c, -c * 0.75, 0.03), up, cc, 0.05); b.vert(pt(0, c * 1.1, 0.03), up, cc, 0.05);
+}
+
+// 꽃 무더기: 들꽃 7송이(키 0.4~0.7m: 무릎 높이 풀 위로 고개를 내밂)를 0.35m 안에 모아 둠 (인스턴스 하나가 꽃 7송이 → 초원 꽃밭을 가볍게 그림. 색은 배치할 때)
+function buildFlowerClump(rnd) {
+  const b = new MeshBuilder();
+  for (let i = 0; i < 7; i++) {
+    const a = rnd() * 6.28, d = Math.sqrt(rnd()) * 0.35;
+    flowerHead(b, Math.cos(a) * d, Math.sin(a) * d, 0.42 + rnd() * 0.26, 1.5 + rnd() * 0.6, rnd() * 6.28);
+  }
+  return b;
+}
+
+// 선돌 (초원 언덕의 돌 고리): 위로 갈수록 좁아지는 넓적한 돌기둥 (폭 0.7 x 두께 0.45 x 높이 2.6m), 살짝 기욺
+function buildStandingStone(rnd) {
+  const b = new MeshBuilder();
+  const stone = () => vary(COLORS.standingStone, 0.08, rnd);
+  const lean = M4.chain(M4.rotationZ(0.05), M4.rotationX(-0.03));
+  Shapes.cylinder(b, M4.chain(lean, M4.scaling(0.36, 1, 0.23)), 1, 0.8, 2.6, 6, stone, { rnd, jitter: 0.12 });
+  Shapes.icosphere(b, M4.chain(lean, M4.translation(0, 2.6, 0), M4.scaling(0.28, 0.1, 0.18)), 0, stone, { rnd, jitter: 0.2 });   // 둥글게 닳은 윗머리
+  Shapes.icosphere(b, M4.chain(M4.translation(0.45, 0.08, 0.25), M4.scaling(0.22, 0.14, 0.18)), 0, stone, { rnd, jitter: 0.4 });   // 발치의 돌
+  return b;
+}
+
+// 선돌 위에 걸친 덮개돌 (가운데가 원점, x 방향으로 4.1m). 쓰러져 땅에 누운 돌로도 씀
+function buildStoneLintel(rnd) {
+  const b = new MeshBuilder();
+  const stone = () => vary(COLORS.standingStone, 0.08, rnd);
+  Shapes.box(b, M4.chain(M4.rotationZ(0.02), M4.rotationY(0.03), M4.scaling(4.1, 0.5, 0.62)), stone);
+  Shapes.box(b, M4.chain(M4.translation(0.6, 0.2, 0), M4.rotationY(-0.04), M4.scaling(2.2, 0.16, 0.5)), stone);   // 윗면의 닳은 턱
+  return b;
+}
+
+// 출구 돌 아치: 기둥 두 개 + 윗돌, 빛나는 룬 (통로는 z 방향)
+function buildGate(rnd) {
+  const b = new MeshBuilder();
+  const stone = () => vary(COLORS.rock, 0.12, rnd);
+  const rune = () => COLORS.runeGlow;
+  for (const sx of [-1, 1]) {
+    for (let i = 0; i < 4; i++) {
+      const w = 0.72 - i * 0.04;
+      Shapes.box(b, M4.chain(M4.translation(sx * 1.45 + (rnd() - 0.5) * 0.05, 0.4 + i * 0.8, (rnd() - 0.5) * 0.05),
+        M4.rotationY((rnd() - 0.5) * 0.12), M4.scaling(w, 0.78, w)), stone);
+    }
+    for (let i = 0; i < 3; i++) {
+      for (const fz of [-1, 1]) {
+        Shapes.box(b, M4.chain(M4.translation(sx * 1.45, 0.75 + i * 0.8, fz * 0.37), M4.rotationZ(0.785), M4.scaling(0.16, 0.16, 0.03)), rune);
+      }
+    }
+  }
+  Shapes.box(b, M4.chain(M4.translation(0, 3.45, 0), M4.scaling(3.95, 0.55, 0.82)), stone);
+  Shapes.box(b, M4.chain(M4.translation(0, 3.88, 0), M4.scaling(3.2, 0.32, 0.62)), stone);
+  for (const fz of [-1, 1]) Shapes.box(b, M4.chain(M4.translation(0, 3.45, fz * 0.42), M4.scaling(0.5, 0.26, 0.03)), rune);
+  return b;
+}
+
+// 고리 모양 지형(먼 산·언덕) 만들기 도우미: 반지름 목록 x 각도 N개 격자, 높이 함수 heightAt(x, z, j), 색 함수 colorAt(p, n)
+// 정점마다 법선을 이웃 점으로 구해 매끈하게
+function ringTerrain(cx, cz, radii, N, heightAt, colorAt) {
+  const b = new MeshBuilder();
+  const P = radii.map((R, j) => {
+    const row = [];
+    for (let i = 0; i <= N; i++) {
+      const a = ((i % N) / N) * Math.PI * 2, x = cx + Math.cos(a) * R, z = cz + Math.sin(a) * R;
+      row.push([x, heightAt(x, z, j), z]);
+    }
+    return row;
+  });
+  const last = radii.length - 1;
+  const NRM = P.map((row, j) => row.map((p, i) => {
+    const l = P[j][(i - 1 + N) % N], r = P[j][(i + 1) % N];
+    const d = P[Math.max(0, j - 1)][i], u = P[Math.min(last, j + 1)][i];
+    const n = V3.normalize(V3.cross(V3.sub(u, d), V3.sub(r, l)));
+    return n[1] < 0 ? V3.scale(n, -1) : n;
+  }));
+  const C = P.map((row, j) => row.map((p, i) => colorAt(p, NRM[j][i])));
+  const emit = (A, B, D) => {   // 위를 향하도록 순서를 맞춰 넣음
+    const [pa, pb, pd] = [A, B, D].map(([j, i]) => P[j][i]);
+    let order = [A, B, D];
+    if (V3.cross(V3.sub(pb, pa), V3.sub(pd, pa))[1] < 0) order = [A, D, B];
+    for (const [j, i] of order) b.vert(P[j][i], NRM[j][i], C[j][i]);
+  };
+  for (let j = 0; j < last; j++) {
+    for (let i = 0; i < N; i++) {
+      emit([j, i], [j, i + 1], [j + 1, i + 1]);
+      emit([j, i], [j + 1, i + 1], [j + 1, i]);
+    }
+  }
+  return b;
+}
+
+// 먼 산맥: 맵 중심(cx, cz)을 크게 둘러싼 고리. 부드러운 능선, 아래는 푸른 숲 → 바위 → 눈
+// k: 높이 배율 (테마의 mountainScale, 작을수록 지평선 위로 낮게 깔려 하늘이 넓게 보임)
+function buildMountains(cx, cz, k = 1) {
+  const radii = [180, 210, 245, 285, 330, 380, 440, 500];
+  const env = [0, 0.3, 0.65, 0.9, 1, 0.9, 0.7, 0.45];
+  const height = (x, z, j) => {
+    const a = Math.atan2(z - cz, x - cx), R = radii[j], u = Math.cos(a), v = Math.sin(a);
+    const n = Utils.fbm2(u * 2.2 + R * 0.003 + 10, v * 2.2 + R * 0.003 - 4, 5);
+    return -6 + (Math.pow(1 - Math.abs(n * 2 - 1), 1.6) * 230 + n * 50) * env[j] * k;
+  };
+  const color = (p, n) => {
+    const y = p[1] / k;                            // 배율을 되돌린 높이 (눈·바위 경계가 산 모양을 그대로 따라가게)
+    const snowLine = 120 + (Utils.noise2(p[0] * 0.02, p[2] * 0.02) - 0.5) * 50;
+    const steep = Math.min(1, (1 - n[1]) / k);     // 낮춘 만큼 완만해진 경사를 대략 되돌림
+    const c = Utils.mixColor(COLORS.farForest, COLORS.cliff, Utils.smooth((y - 25) / 40 + steep * 1.2));
+    return Utils.mixColor(c, COLORS.snow, Utils.smooth((y - snowLine) / 25) * (1 - Utils.smooth((steep - 0.5) * 3)));
+  };
+  return ringTerrain(cx, cz, radii, 220, height, color);
+}
+
+// 숲과 산 사이의 완만한 언덕 높이 (맵 중심에서 60m부터 솟아오름, 그 안쪽은 땅 밑에 숨음)
+function hillHeight(x, z, cx, cz) {
+  const d = Math.hypot(x - cx, z - cz);
+  const env = Utils.smooth((d - 60) / 60) * (1 - Utils.smooth((d - 195) / 30));
+  return -3 + env * Utils.fbm2(x * 0.012 + 3, z * 0.012 - 7, 4) * 55;
+}
+
+function buildHills(cx, cz) {
+  const radii = [];
+  for (let R = 58; R <= 230; R += 8) radii.push(R);
+  const green = rgb('#5a7c48'), top = rgb('#8aa35c');   // 언덕: 옅은 올리브 → 볕 받은 꼭대기는 파스텔 연두
+  return ringTerrain(cx, cz, radii, 160, (x, z) => hillHeight(x, z, cx, cz),
+    (p, n) => Utils.mixColor(COLORS.farForest, Utils.mixColor(green, top, Utils.smooth((p[1] - 10) / 25)), Utils.smooth(n[1] * 2 - 1)));
+}
+
+// 멀리 보이는 숲의 나무 (안개 속 실루엣이라 단순하게)
+function buildFarTree(rnd) {
+  const b = new MeshBuilder();
+  Shapes.cylinder(b, M4.identity(), 0.3, 0.2, 2.5, 5, () => COLORS.bark, { top: false });
+  Shapes.cylinder(b, M4.translation(0, 1.5, 0), 2.2, 0, 4.5, 8, () => vary(COLORS.pine[1], 0.1, rnd), { smooth: true, bottom: true, gradient: [1.15, 0.7] });
+  Shapes.cylinder(b, M4.translation(0, 4.2, 0), 1.5, 0, 3.6, 8, () => vary(COLORS.pine[2], 0.1, rnd), { smooth: true, bottom: true, gradient: [1.15, 0.7] });
+  return b;
+}
+
+// ---------- 동굴 ----------
+
+// 동굴 벽 바위: 위아래로 긴 울퉁불퉁한 덩어리 (높이 약 9m, 꼭대기는 천장 속에 묻힘)
+function buildCliffRock(rnd) {
+  const b = new MeshBuilder();
+  const c = () => vary(COLORS.caveRock, 0.14, rnd);
+  Shapes.icosphere(b, M4.chain(M4.translation(0, 4, 0), M4.scaling(1.7, 5.2, 1.5)), 2, c, { rnd, jitter: 0.35 });
+  Shapes.icosphere(b, M4.chain(M4.translation(0.9, 0.6, 0.4), M4.scaling(1.1, 1.0, 1.0)), 1, c, { rnd, jitter: 0.4 });   // 발치에 걸친 돌
+  return b;
+}
+
+// 석순: 바닥에서 솟은 뾰족한 돌기둥 (큰 것 하나 + 작은 것 둘)
+function buildStalagmite(rnd) {
+  const b = new MeshBuilder();
+  const c = () => vary(COLORS.caveRock, 0.1, rnd);
+  Shapes.cylinder(b, M4.translation(0, -0.1, 0), 0.5, 0.05, 2.6, 8, c, { rnd, jitter: 0.25, top: false });
+  Shapes.cylinder(b, M4.translation(0.45, -0.1, 0.2), 0.25, 0.03, 1.2, 7, c, { rnd, jitter: 0.25, top: false });
+  Shapes.cylinder(b, M4.translation(-0.3, -0.1, -0.35), 0.2, 0.02, 0.8, 6, c, { rnd, jitter: 0.25, top: false });
+  return b;
+}
+
+// 종유석: 천장에 매달린 고드름 모양 (원점 = 천장, 아래로 자람)
+function buildStalactite(rnd) {
+  const b = new MeshBuilder();
+  const c = () => vary(COLORS.caveCeil, 0.12, rnd);
+  const down = M4.rotationX(Math.PI);
+  Shapes.cylinder(b, M4.chain(M4.translation(0, 0.3, 0), down), 0.4, 0.03, 2.0, 7, c, { rnd, jitter: 0.25, top: false });
+  Shapes.cylinder(b, M4.chain(M4.translation(0.5, 0.3, 0.1), down), 0.22, 0.02, 1.1, 6, c, { rnd, jitter: 0.25, top: false });
+  Shapes.cylinder(b, M4.chain(M4.translation(-0.35, 0.3, 0.3), down), 0.18, 0.02, 0.7, 6, c, { rnd, jitter: 0.25, top: false });
+  return b;
+}
+
+// 수정 덩어리: 바위 받침에서 여러 방향으로 솟은 육각 기둥 (끝은 뾰족). 면마다 빛이 달라 반짝임
+function buildCrystal(rnd) {
+  const b = new MeshBuilder();
+  Shapes.icosphere(b, M4.chain(M4.translation(0, 0.05, 0), M4.scaling(0.75, 0.3, 0.7)), 1, () => vary(COLORS.crystalBase, 0.1, rnd), { rnd, jitter: 0.4 });
+  const spikes = [[0, 1, 0, 0.2, 1.7], [0.5, 0.8, 0.2, 0.14, 1.1], [-0.5, 0.85, 0.1, 0.15, 1.2], [0.15, 0.75, -0.6, 0.12, 0.9],
+    [-0.2, 0.7, 0.6, 0.11, 0.8], [0.7, 0.5, -0.4, 0.08, 0.5], [-0.6, 0.45, -0.45, 0.09, 0.6]];
+  for (const [dx, dy, dz, r, len] of spikes) {
+    const d = V3.normalize([dx + (rnd() - 0.5) * 0.15, dy, dz + (rnd() - 0.5) * 0.15]);
+    const p0 = [d[0] * 0.15, 0.1, d[2] * 0.15], p1 = V3.add(p0, V3.scale(d, len)), tip = V3.add(p1, V3.scale(d, r * 1.8));
+    const c = () => vary(COLORS.crystal, 0.06, rnd);
+    Shapes.segment(b, p0, p1, r, r * 0.9, 6, c, { top: false });
+    Shapes.segment(b, p1, tip, r * 0.9, 0, 6, c);
+  }
+  return b;
+}
+
+// 화로 횃불: 나무 기둥 + 쇠 화로 + 숯불 (불꽃은 particles.js가 피워 올림)
+function buildTorch(rnd) {
+  const b = new MeshBuilder();
+  const sm = { smooth: true };
+  Shapes.cylinder(b, M4.identity(), 0.09, 0.07, 1.45, 8, () => vary(COLORS.bark, 0.1, rnd), sm);
+  for (let i = 0; i < 3; i++) {   // 바닥을 받친 다리
+    const a = (i / 3) * Math.PI * 2;
+    Shapes.segment(b, [Math.cos(a) * 0.35, 0, Math.sin(a) * 0.35], [0, 0.5, 0], 0.035, 0.03, 5, () => COLORS.iron);
+  }
+  Shapes.cylinder(b, M4.translation(0, 1.42, 0), 0.12, 0.3, 0.26, 10, () => COLORS.iron, { bottom: true });
+  Shapes.cylinder(b, M4.translation(0, 1.66, 0), 0.31, 0.31, 0.04, 10, () => COLORS.iron, sm);   // 화로 테
+  Shapes.icosphere(b, M4.chain(M4.translation(0, 1.66, 0), M4.scaling(0.26, 0.08, 0.26)), 1, () => COLORS.coal, sm);
+  return b;
+}
+
+// 천장 구멍 가장자리에 늘어진 덩굴 (원점 = 천장, 아래로 늘어짐). 가는 잎 띠 여러 가닥
+function buildVines(rnd) {
+  const b = new MeshBuilder();
+  for (let k = 0; k < 5; k++) {
+    const ox = (rnd() - 0.5) * 0.8, oz = (rnd() - 0.5) * 0.8, len = 1.2 + rnd() * 1.8, n = 7, w = 0.05 + rnd() * 0.04;
+    const c = vary(COLORS.leaf[(rnd() * 4) | 0], 0.15, rnd);
+    let prev = null;
+    for (let i = 0; i <= n; i++) {
+      const t = i / n, y = 0.2 - t * len, sway = Math.sin(t * 5 + k) * 0.08 * t;
+      const p = [ox + sway, y, oz + Math.cos(t * 4 + k) * 0.06 * t];
+      const half = w * (1 - t * 0.5);
+      const cur = [V3.add(p, [-half, 0, 0]), V3.add(p, [half, 0, 0])];
+      if (prev) {
+        const nrm = [0, 0, 1];
+        for (const q of [prev[0], prev[1], cur[1], prev[0], cur[1], cur[0]]) b.vert(q, nrm, c, t * 0.15);
+      }
+      prev = cur;
+      if (i > 0 && i < n && rnd() < 0.6) {   // 작은 잎
+        const s = 0.07 + rnd() * 0.05, side = rnd() < 0.5 ? -1 : 1;
+        const l0 = p, l1 = V3.add(p, [side * s, -s * 0.5, s * 0.3]), l2 = V3.add(p, [side * s * 0.4, -s * 1.1, 0]);
+        b.vert(l0, [0, 0, 1], c, t * 0.15); b.vert(l1, [0, 0, 1], c, t * 0.15); b.vert(l2, [0, 0, 1], c, t * 0.15);
+      }
+    }
+  }
+  return b;
+}
+
+// 빛나는 버섯 무리 (동굴 바닥 벽가에)
+function buildGlowShroom(rnd) {
+  const b = new MeshBuilder();
+  const sm = { smooth: true };
+  for (let i = 0; i < 5; i++) {
+    const a = rnd() * Math.PI * 2, d = i === 0 ? 0 : 0.1 + rnd() * 0.2, h = 0.08 + rnd() * 0.14, r = 0.04 + rnd() * 0.05;
+    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+    Shapes.cylinder(b, M4.translation(x, 0, z), r * 0.35, r * 0.3, h, 6, () => COLORS.shroomStem, sm);
+    Shapes.cylinder(b, M4.translation(x, h, z), r, r * 0.15, r * 0.7, 8, () => COLORS.shroomCap, { smooth: true, bottom: true });
+  }
+  return b;
+}
+
+// ---------- 검과 팔 (1인칭) ----------
+
+// 전설의 검 '발뭉' + 철 장갑 낀 주먹 (손 = 원점, 칼날은 +y 방향)
+// 길고 넓은 은빛 칼날, 가운데 능선을 따라 푸르게 빛나는 룬, 넓은 금 날밑 한가운데 커다란 푸른 보석
+const BALMUNG_LENGTH = 1.24;   // 손에서 칼끝까지 (m)
+function buildSword() {
+  const b = new MeshBuilder();
+  const rnd = Utils.rng(8);
+  const sm = { smooth: true };
+  const T = M4.translation, S = M4.scaling, ch = M4.chain;
+  // 칼날: 마름모 단면 (면마다 밝기를 달리해 금속 느낌), 끝으로 갈수록 살짝 좁아짐
+  const ht = 0.012, y0 = 0.12, y1 = 1.08, tipY = BALMUNG_LENGTH;
+  const ring = (y, hw, t) => [[-hw, y, 0], [0, y, t], [hw, y, 0], [0, y, -t]];
+  const r0 = ring(y0, 0.05, ht), r1 = ring(y1, 0.036, ht * 0.85), tip = [0, tipY, 0];
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4;
+    const col = i % 2 ? COLORS.balmung : COLORS.balmungEdge;
+    b.tri(r0[i], r0[j], r1[j], col);
+    b.tri(r0[i], r1[j], r1[i], col);
+    b.tri(r1[i], r1[j], tip, col);
+  }
+  for (const fz of [-1, 1]) {   // 가운데 홈 + 빛나는 룬
+    Shapes.box(b, ch(T(0, 0.6, fz * 0.0112), S(0.012, 0.86, 0.004)), () => COLORS.balmungFuller);
+    for (let i = 0; i < 8; i++) {
+      Shapes.box(b, ch(T(0, 0.2 + i * 0.105, fz * 0.0135), M4.rotationZ(0.785), S(0.016, 0.016, 0.004)), () => COLORS.rune);
+    }
+  }
+  const gold = () => vary(COLORS.gold, 0.06, rnd);
+  Shapes.box(b, ch(T(0, 0.095, 0), S(0.3, 0.035, 0.05)), gold);                                   // 날밑
+  for (const sx of [-1, 1]) {
+    Shapes.box(b, ch(T(sx * 0.17, 0.112, 0), M4.rotationZ(sx * 0.6), S(0.08, 0.03, 0.045)), gold);   // 칼끝 쪽으로 휜 날밑 끝
+    Shapes.icosphere(b, ch(T(sx * 0.2, 0.145, 0), S(0.022, 0.022, 0.022)), 1, gold, sm);
+  }
+  Shapes.icosphere(b, ch(T(0, 0.1, 0), S(0.055, 0.06, 0.036)), 1, gold, sm);                       // 보석 받침
+  for (const fz of [-1, 1]) Shapes.icosphere(b, ch(T(0, 0.1, fz * 0.03), S(0.03, 0.036, 0.012)), 1, () => COLORS.gem);   // 푸른 보석
+  Shapes.cylinder(b, T(0, -0.14, 0), 0.018, 0.019, 0.22, 10, () => COLORS.blueLeather, sm);         // 손잡이 (푸른 가죽)
+  for (let i = 0; i < 3; i++) Shapes.cylinder(b, T(0, -0.12 + i * 0.08, 0), 0.0205, 0.0205, 0.012, 10, gold, sm);
+  Shapes.icosphere(b, ch(T(0, -0.165, 0), S(0.034, 0.034, 0.034)), 1, gold, sm);                    // 손잡이 끝 장식
+  Shapes.icosphere(b, ch(T(0, -0.165, 0), S(0.016, 0.016, 0.04)), 1, () => COLORS.gem);
+  const gt = () => vary(COLORS.gauntlet, 0.08, rnd);
+  Shapes.box(b, M4.chain(M4.translation(0, -0.03, 0.012), M4.scaling(0.07, 0.1, 0.075)), gt);          // 주먹
+  Shapes.box(b, M4.chain(M4.translation(0, -0.03, -0.03), M4.scaling(0.075, 0.095, 0.022)), () => COLORS.steelDark); // 손가락 마디
+  return b;
+}
+
+// 팔: 손목(y=0) → 어깨(y=1). 그릴 때 길이에 맞춰 늘림
+function buildArm() {
+  const b = new MeshBuilder();
+  const rnd = Utils.rng(9);
+  const gt = () => vary(COLORS.gauntlet, 0.08, rnd);
+  const sm = { rnd, smooth: true };
+  Shapes.cylinder(b, M4.identity(), 0.042, 0.055, 0.42, 10, gt, sm);                                   // 팔뚝 갑옷
+  Shapes.cylinder(b, M4.translation(0, 0.05, 0), 0.05, 0.05, 0.06, 10, () => COLORS.steelDark, sm);    // 손목 띠
+  Shapes.icosphere(b, M4.chain(M4.translation(0, 0.45, 0), M4.scaling(0.07, 0.06, 0.07)), 1, gt, sm);   // 팔꿈치
+  Shapes.cylinder(b, M4.translation(0, 0.45, 0), 0.06, 0.075, 0.6, 10, () => vary(COLORS.cloth, 0.1, rnd), sm);   // 소매
+  return b;
+}
+
+// 게임에서 쓰는 모델 모음 (시작할 때 한 번 만듦)
+const Models = {
+  build() {
+    this.leafTexture = buildLeafTexture();
+    // 나무: 가까이 보이는 매끈한 모양 + 멀리 있을 때 쓰는 가벼운 모양 (같은 난수로 만들어 모양은 같고 면만 적음 → 바뀌어도 티가 안 남)
+    const D = CONFIG.graphics.treeDetail ?? 2;
+    const trees = { pineA: (d) => buildPine(Utils.rng(11), false, d), pineB: (d) => buildPine(Utils.rng(12), true, d),
+      oakA: (d) => buildOak(Utils.rng(13), d), oakB: (d) => buildOak(Utils.rng(14), d), birch: (d) => buildBirch(Utils.rng(19), d) };
+    this.far = {};   // 이름 → 멀리 있을 때 쓰는 모델 (휴대폰처럼 처음부터 가벼우면 없음)
+    for (const name in trees) {
+      this[name] = trees[name](D);
+      if (D > 1) this.far[name] = trees[name](1);
+    }
+    this.bush = buildBush(Utils.rng(15));
+    this.rock = buildRock(Utils.rng(16));
+    this.grass = buildGrassTuft(Utils.rng(17));
+    this.grassGold = buildGrassTuft(Utils.rng(18), COLORS.grassGoldBase, COLORS.grassGoldTip, 1.3);   // 금빛 마른 풀
+    this.flower = buildFlower();
+    this.fern = buildFern(Utils.rng(20));
+    this.reeds = buildReeds(Utils.rng(24));
+    this.lily = buildLily(Utils.rng(25));
+    this.mushroom = buildMushrooms(Utils.rng(22));
+    this.log = buildLog(Utils.rng(23));
+    this.pebbles = buildPebbles(Utils.rng(26));
+    this.litter = buildLitter(Utils.rng(27));
+    this.ruin = buildRuin(Utils.rng(28));
+    this.farTree = buildFarTree(Utils.rng(30));
+    this.gate = buildGate(Utils.rng(29));
+    this.cliffRock = buildCliffRock(Utils.rng(40));
+    this.stalagmite = buildStalagmite(Utils.rng(41));
+    this.stalactite = buildStalactite(Utils.rng(42));
+    this.crystal = buildCrystal(Utils.rng(43));
+    this.torch = buildTorch(Utils.rng(44));
+    this.glowShroom = buildGlowShroom(Utils.rng(45));
+    this.vines = buildVines(Utils.rng(46));
+    // 구역별 풍경 (오픈월드): 나무는 멀리 있을 때 쓰는 가벼운 모양도
+    this.windPine = buildWindPine(Utils.rng(50), D);
+    this.willow = buildWillow(Utils.rng(51), D);
+    if (D > 1) {
+      this.far.windPine = buildWindPine(Utils.rng(50), 1);
+      this.far.willow = buildWillow(Utils.rng(51), 1);
+    }
+    this.deadTree = buildDeadTree(Utils.rng(52));
+    this.crag = buildCrag(Utils.rng(53));
+    this.cragB = buildCrag(Utils.rng(57), true);
+    this.flowerClump = buildFlowerClump(Utils.rng(54));
+    this.standingStone = buildStandingStone(Utils.rng(55));
+    this.stoneLintel = buildStoneLintel(Utils.rng(56));
+    this.sword = buildSword();
+    this.arm = buildArm();
+  },
+};
